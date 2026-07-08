@@ -1,0 +1,81 @@
+services:
+  db:
+    command: ["postgres", "-c", "maintenance_work_mem=256MB"]
+    image: pgvector/pgvector:pg16
+    container_name: homelens-postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:-app}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-app_pw}"
+      POSTGRES_DB: "${POSTGRES_DB:-app_db}"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/initdb:/docker-entrypoint-initdb.d
+      - ./docker/postgres/dumps:/dump
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-app_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - homelens-net
+
+  db-restore:
+    image: pgvector/pgvector:pg16
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      PGPASSWORD: "${POSTGRES_PASSWORD:-app_pw}"
+      POSTGRES_USER: "${POSTGRES_USER:-app}"
+      POSTGRES_DB: "${POSTGRES_DB:-app_db}"
+    volumes:
+      - ./docker/postgres/dumps:/dump:ro
+    command:
+      - bash
+      - -lc
+      - >
+          echo "USER=$POSTGRES_USER DB=$POSTGRES_DB";
+          set -euo pipefail;
+          echo "[restore] start";
+          echo "[restore] dump:"; ls -al /dump/homelens.dump;
+          pg_restore -h db -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges /dump/homelens.dump;
+          echo "[restore] done";
+    networks:
+      - homelens-net
+    profiles: ["restore"]
+
+  semantic-api:
+    build: ./app
+    container_name: semantic-api
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    networks:
+      - homelens-net
+
+  backend:
+    build: .
+    container_name: homelens-backend
+    ports:
+      - "80:80"
+    environment:
+      - SEMANTIC_API_BASE_URL=http://semantic-api:8000
+      - SPRING_PROFILES_ACTIVE=docker
+      - MAIL_SENDER_EMAIL=${MAIL_SENDER_EMAIL:-}
+      - MAIL_APP_PASSWORD=${MAIL_APP_PASSWORD:-}
+      - APP_VERIFY_BASE_URL=${APP_VERIFY_BASE_URL:-http://localhost}
+    depends_on:
+      - db
+      - semantic-api
+    networks:
+      - homelens-net
+
+volumes:
+  pgdata:
+
+networks:
+  homelens-net:
+    driver: bridge

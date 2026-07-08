@@ -1,0 +1,38 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*secret*
+*credentials*
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+
+# Notebooks
+*.ipynb
+.ipynb_checkpoints/
+
+# Generated data and model/vector artifacts
+/output/
+/data/
+/json/
+/vector_cache/
+*.csv
+*.parquet
+*.npy
+*.npz
+
+# Logs
+logs/
+*.log

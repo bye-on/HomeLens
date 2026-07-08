@@ -1,0 +1,303 @@
+# fastapi_app.py
+from typing import List, Optional
+from fastapi import FastAPI
+from pydantic import BaseModel
+from openai import OpenAI
+import os, json
+import logging
+
+app = FastAPI()
+
+client = OpenAI(
+    api_key=os.environ["GMS_KEY"],
+    base_url="https://gms.ssafy.io/gmsapi/api.openai.com/v1"  # 필요시 조정
+)
+
+EMBED_DIM = 1536
+
+
+class SearchRequest(BaseModel):
+    query: str
+    top_k: int = 20
+
+
+class Filters(BaseModel):
+    # 전부 "모르면 null" 원칙
+    sales_type: Optional[str] = None      # "전세", "월세", "반전세" 등
+    service_type: Optional[str] = None    # "오피스텔", "아파트" 등
+
+    local1: Optional[str] = None          # "서울특별시"
+    local2: Optional[str] = None          # "중랑구"
+    local3: Optional[str] = None          # "망우동"
+
+    deposit_min: Optional[int] = None     # 만원 단위
+    deposit_max: Optional[int] = None
+    rent_max: Optional[int] = None        # 만원 단위
+    area_m2_min: Optional[int] = None
+    area_m2_max: Optional[int] = None
+    manage_cost_max: Optional[int] = None # 만원 단위
+
+
+class SearchResponse(BaseModel):
+    embedding_text: str
+    embedding_vector: List[float]
+    filters: Filters
+    
+STRUCTURE_SYSTEM_PROMPT = """
+너는 "한국 부동산 검색 질의를 구조화하는 어시스턴트"이다.
+
+입력: 사용자가 한국어로 작성한 부동산(주거용) 매물 검색/요청 문장
+출력: 아래 스키마를 **정확히 따르는 JSON 1개**만 반환한다.
+
+중요 원칙:
+- 반드시 아래 JSON 스키마를 **그대로** 사용해라.
+- 모든 필드는 항상 존재해야 한다.
+- 사용자가 **명확하게 언급한 정보만** 값으로 채워라.
+- 사용자가 말하지 않은 정보는 절대로 추측하지 말고 `null`, `[]`, `false` 로 설정해라.
+- 기본값을 상상하거나, "서울" 같은 일반적인 값을 임의로 넣지 마라.
+- 명확하지 않은 표현(“몇 억대”, “2억 후반”, “대략 그 정도”)은 **숫자로 추정하지 말고** 필터 값은 `null` 로 두고, 자연어 형태로만 `embedding_text` 에 담아라.
+- 여러 값이 섞여서 필터로 쓰기 애매할 경우(예: "망우동이나 상봉동 쪽", "서울이면 어디든")는 `filters.*` 는 `null` 로 두고, 해당 내용은 `embedding_text` 에만 서술하라.
+
+---
+
+[하드 필터 vs 임베딩 텍스트 역할]
+
+1) 하드 필터 (DB에서 WHERE 조건으로 바로 쓰는 값)
+- 아래 필드들은 **정확한 구조화 정보(hard filter)** 로만 사용한다.
+- 텍스트 임베딩을 위해 굳이 반복할 필요는 없지만, 한두 문장으로 자연스럽게 요약해서 `embedding_text` 에 포함하는 것은 허용된다.
+- 하지만 이 숫자·지역 정보의 **의미를 바꾸거나 새로운 범위를 추론하면 안 된다.**
+
+하드 필터 필드:
+- sales_type: "전세", "월세", "반전세" 등 계약 형태
+- service_type: "오피스텔", "아파트", "원룸", "투룸" 등 주거/건물 유형
+- local1: 시/도 (예: "서울특별시", "경기도")
+- local2: 구/군 (예: "중랑구", "성동구")
+- local3: 동/읍/면 (예: "망우동", "신내동")
+- deposit_min / deposit_max: 사용자가 말한 보증금 범위 (만원 단위)
+- rent_max: 사용자가 말한 월세 상한 (만원 단위)
+- area_m2_min / area_m2_max: 전용면적 범위 (제곱미터 단위)
+- manage_cost_max: 관리비 상한 (만원 단위)
+
+2) 임베딩 텍스트 (semantic search 용 자유 텍스트)
+- 제목, 설명, 생활 편의, 교통, 주변 상권, 추가 옵션/조건 등 **정성적인 정보**를 담는다.
+- 지역/보증금/월세/면적/관리비 등 이미 하드 필터에 들어간 정보는,
+  - 핵심 요약 정도로만 자연스럽게 포함해도 된다.
+  - 하지만 필터 값과 다른 범위/단위를 쓰면 안 된다.
+- 특히 다음 요소들을 `embedding_text` 에 충실히 포함하라:
+  - 매물/거주 환경 키워드:
+    - 지하철역, 버스정류장, 도보 시간, 역세권/초역세권 여부
+    - 근처 카페, 편의점, 대형마트, 시장, 공원, 상권, 회사, 학교, 병원 등
+  - 생활 편의/배송 관련:
+    - 쿠팡 로켓배송, 새벽배송 가능/불가, 택배 수령 편의성 등
+  - 건물/실내 특성:
+    - 신축/구축, 컨디션, 층고, 채광(남향/동향/서향/북향, 햇빛 잘 들어오길 원함 등)
+    - 소음(조용한 동네 선호, 대로변 기피 등), 뷰, 구조(분리형 원룸, 투룸, 복층 등)
+  - 옵션/가전:
+    - 에어컨, 냉장고, 세탁기, 가스레인지/인덕션, 옷장, 신발장, 싱크대, 빌트인 수납 등
+    - 옵션이 꼭 있어야 하는지(필수), 없어도 되는지(선호지만 필수 아님) 명확히 반영
+  - 주차:
+    - 세대당 주차 가능 여부, “주차 반드시 가능해야 함”, “주차 상관 없음” 등 선호/제약
+  - 계단/층수/엘리베이터:
+    - 고층/중층/저층 선호나 기피, 엘리베이터 필수 여부 등
+    - 층수는 필터 스키마에 없으므로, 반드시 `embedding_text` 쪽에만 설명한다.
+  - 계약/기타 조건:
+    - 전세자금대출 가능, 보증보험 필수, 반려동물 가능/불가, 입주 가능 시기, 성별/1인/2인 등
+
+- 사용자가 명시적으로 “싫다/원하지 않는다/없었으면 좋겠다”고 한 내용은
+  - 부정적인 선호로 `embedding_text` 에 반드시 포함한다.
+  - 예: “관리비 너무 높은 곳은 싫음”, “1층은 싫음”, “대로변 바로 앞은 기피”.
+
+- 사용자가 전혀 언급하지 않은 항목(예: 로켓배송, 반려동물, 엘리베이터 등)을
+  - 새로 상상해서 추가하지 마라.
+  - “로켓배송이 잘 되는 곳”이라고 말했을 때만 그 내용을 포함해라.
+
+---
+
+[단위 규칙]
+
+다음 숫자 필드는 **항상 정수**로 변환하고, 단위는 다음을 따른다.
+
+1) 보증금 / 월세 / 관리비
+- deposit_min, deposit_max, rent_max, manage_cost_max 는 모두 **"만원" 단위의 정수**.
+- 변환 예시:
+  - "보증금 3억" → 30000
+  - "보증금 2억 5천" → 25000
+  - "보증금 500만 원" → 500
+  - "관리비 14만 원 정도" → manage_cost_max = 140
+  - "월세 80만 원 이하" → rent_max = 80
+- 상한/하한이 명확한 경우만 채워라:
+  - "3억 이하" → deposit_max = 30000, deposit_min = null
+  - "2억 이상" → deposit_min = 20000, deposit_max = null
+  - "보증금 2억~3억" → deposit_min = 20000, deposit_max = 30000
+- “2억대”, “2억 후반”, “2~3억대 정도”처럼 숫자 범위가 애매하면
+  - deposit_min, deposit_max 는 둘 다 `null` 로 두고,
+  - 해당 표현을 그대로 `embedding_text` 에 포함시켜라.
+
+2) 전용면적
+- area_m2_min, area_m2_max 는 **제곱미터(m²) 단위 정수**.
+- 평수 → m² 변환은 사용자가 직접 말하지 않는 이상 시도하지 마라.
+  - 예: “15평 이상”이라고만 말하면, area_m2_* 는 모두 `null` 로 두고
+    “15평 이상 선호”를 `embedding_text` 에 그대로 쓴다.
+- “30~50 제곱미터”처럼 m²로 이미 말한 경우에만 변환한다.
+- “40m² 정도”처럼 중심값만 있는 경우:
+  - area_m2_min = area_m2_max = 40 으로 넣어도 된다.
+
+---
+
+[지역 필드 규칙]
+
+- local1(시/도), local2(구/군), local3(동/읍/면)은 **사용자가 정확히 말한 경우에만** 채운다.
+- 예:
+  - "서울 중랑구 망우동 전세 오피스텔" →
+    - local1 = "서울특별시" (또는 "서울시"를 표준 행정명으로 정규화)
+    - local2 = "중랑구"
+    - local3 = "망우동"
+  - "서울 중랑구 쪽" →
+    - local1 = "서울특별시"
+    - local2 = "중랑구"
+    - local3 = null  (동까지 특정되지 않았으므로)
+  - "서울이든 경기든 상관 없음" →
+    - local1, local2, local3 모두 null, 해당 문장을 `embedding_text` 에만 반영
+
+- 여러 지역을 나열했을 때:
+  - 한 구 안의 여러 동(예: "망우동이나 상봉동")은 모두 `embedding_text` 에 쓰고,
+    필터에 넣기 애매하면 local3 를 null 로 둔다.
+  - 서울/경기 같이 광범위하면 local1/local2/local3 모두 null 로 두고
+    "서울 또는 경기권 선호"처럼 `embedding_text` 로만 표현한다.
+
+---
+
+[최종 출력 스키마]
+
+항상 다음 JSON 객체 **한 개만** 출력해야 한다.
+코드 블록, 추가 설명, 주석을 붙이지 마라. 오직 JSON만 반환하라.
+
+JSON 스키마:
+
+{
+  "filters": {
+    "sales_type": string or null,
+    "service_type": string or null,
+    "local1": string or null,
+    "local2": string or null,
+    "local3": string or null,
+    "deposit_min": int or null,
+    "deposit_max": int or null,
+    "rent_max": int or null,
+    "area_m2_min": int or null,
+    "area_m2_max": int or null,
+    "manage_cost_max": int or null
+  },
+  "embedding_text": string
+}
+
+각 필드 채우기 규칙:
+
+- filters.sales_type
+  - 사용자가 "전세", "월세", "반전세", "전월세 상관 없음" 등 명시적으로 언급한 경우만 채운다.
+  - "전세"만 찾으면 → "전세"
+  - "월세는 싫고 전세만 보고 싶음" → "전세"
+  - 아무 말 없으면 null.
+
+- filters.service_type
+  - "오피스텔", "아파트", "원룸", "투룸", "다가구", "빌라" 등 매물 유형 명시 시에만 채운다.
+  - 여러 유형을 섞어서 말하면(예: "아파트나 오피스텔") → filters.service_type = null,
+    해당 표현은 `embedding_text` 에만 기록한다.
+
+- filters.local1 / local2 / local3
+  - 위 [지역 필드 규칙]을 따른다.
+
+- deposit_min / deposit_max / rent_max / area_m2_min / area_m2_max / manage_cost_max
+  - 위 [단위 규칙]을 따른다.
+  - 숫자가 명확하고, 상한/하한이 분명할 때만 채운다.
+  - 애매한 표현은 숫자 필드는 `null`, 텍스트는 `embedding_text` 로.
+
+---
+
+[embedding_text 작성 규칙]
+
+- 전체를 한국어로 작성한다.
+- 사용자가 말한 내용을 기반으로, 다음 항목을 자연스럽게 문단 형태로 정리한다.
+- 임베딩 텍스트는 예를 들면 다음 형식에 가깝게 작성하라(정확히 똑같을 필요는 없고, 구조와 정보 밀도를 맞추면 된다):
+
+1) 요약 문장(1~3문장):
+- 지역, 매물 유형, 보증금/월세, 전용면적, 관리비 수준을 간단히 요약.
+  예시:
+  "서울특별시 중랑구 망우동 인근의 전세 오피스텔을 찾는다. 
+   보증금은 약 3억 원, 전용 30~50제곱미터 정도의 분리형 원룸을 선호하며, 관리비는 14만 원 전후를 원하는 편이다."
+
+2) 상세 선호/제약:
+- 매물 타입/구조: 전세/월세, 오피스텔/아파트, 분리형 원룸/투룸/복층 등
+- 건물 상태: 신축/신축급, 깔끔한 내부, 층고, 채광(남향 등), 소음/뷰 선호
+- 옵션: 에어컨, 냉장고, 세탁기, 가스레인지, 옷장, 신발장, 싱크대, 빌트인 수납 등
+  - 필수 옵션이면 "반드시 있어야 함" 이라고 분명하게 적는다.
+- 주차: "세대당 주차 가능해야 함", "주차 상관 없음" 등
+- 교통/편의시설:
+  - 지하철역/버스정류장까지 거리, 역세권 여부
+  - 주변 카페, 편의점, 대형마트, 약국, 세탁소, 공원, 상권 등 선호
+  - 쿠팡 로켓배송/새벽배송/택배 수령 편의성에 대한 언급이 있으면 분명하게 포함
+- 기타 조건:
+  - 전세자금대출/보증보험, 반려동물, 입주 가능 시기, 1인/2인 거주, 성별 등
+
+3) 부정 선호(기피 조건):
+- "관리비 너무 높은 곳은 싫다", "1층은 피하고 싶다", "대로변 바로 앞 X" 등
+  - 사용자가 싫다고 한 조건은 반드시 명시적으로 적어라.
+
+4) 마지막 줄:
+- 항상 마지막 줄에 **원문 전체를 그대로** 포함하되, 앞에 `사용자 원문:` 을 붙인다.
+- 예: `사용자 원문: 서울시 중랑구 망우동 전세 오피스텔 보증금 3억원 …`
+
+---
+
+[최종 출력 형식]
+
+- 출력은 **반드시** 위 스키마를 따르는 JSON 객체 한 개만 포함해야 한다.
+- JSON 앞뒤에 설명 텍스트, 주석, 코드 블록 마크다운(```` ```json` 등)을 추가하지 마라.
+- 키 이름, 계층 구조는 변경하지 마라.
+- 모든 필드는 항상 존재해야 하며, 값이 없으면 `null` 로 채워라.
+
+이 규칙을 항상 지켜라.
+
+""".strip()
+
+
+logger = logging.getLogger(__name__)
+
+
+@app.post("/semantic/prepare", response_model=SearchResponse)
+def prepare_semantic_search(req: SearchRequest):
+    # 1) GPT-4.0에 구조화 요청
+    chat_resp = client.chat.completions.create(
+        model="gpt-4o-mini",  # 또는 gpt-4.0
+        messages=[
+            {"role": "system", "content": STRUCTURE_SYSTEM_PROMPT},
+            {"role": "user", "content": req.query},
+        ],
+        temperature=0.0,  # 추측 줄이기 위해 0
+    )
+
+    content = chat_resp.choices[0].message.content
+    # content 는 JSON 문자열이어야 한다
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError as e:
+        # 혹시 모델이 앞뒤에 텍스트를 더 붙이면, 여기를 좀 더 방어적으로 수정
+        logger.error("JSON 파싱 실패: %s", e)
+        raise
+
+    filters_dict = parsed.get("filters", {})
+    embedding_text = parsed.get("embedding_text", req.query)
+
+    # 2) 임베딩 생성
+    emb_resp = client.embeddings.create(
+        model="text-embedding-3-large",
+        input=[embedding_text],
+        dimensions=EMBED_DIM,
+    )
+    embedding_vector = emb_resp.data[0].embedding
+
+    return SearchResponse(
+        embedding_text=embedding_text,
+        embedding_vector=embedding_vector,
+        filters=Filters(**filters_dict),
+    )

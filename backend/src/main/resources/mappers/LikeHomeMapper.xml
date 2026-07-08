@@ -1,0 +1,168 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.homelens.mapper.LikeHomeMapper">
+
+<resultMap id="PropertyBaseMap" type="com.homelens.model.response.property.PropertyDetailResponseDto">
+  <id column="itemId" property="itemId"/>
+  <result column="title" property="title"/>
+  <result column="sales_type" property="salesType"/>
+  <result column="service_type" property="serviceType"/>
+  <result column="local1" property="local1"/>
+  <result column="local2" property="local2"/>
+  <result column="local3" property="local3"/>
+  <result column="jibunAddress" property="jibunAddress"/>
+  <result column="deposit" property="deposit"/>
+  <result column="rent" property="rent"/>
+  <result column="manageCost" property="manageCost"/>
+  <result column="manageNotIncludes" property="manageNotIncludes"/>
+  <result column="options" property="options"/>
+  <result column="areaM2" property="areaM2"/>
+  <result column="areaContractM2" property="areaContractM2"/>
+  <result column="floorLevel" property="floorLevel"/>
+  <result column="allFloors" property="allFloors"/>
+  <result column="lat" property="lat"/>
+  <result column="lng" property="lng"/>
+
+  <!-- JSON -->
+  <result column="subway" property="subway" jdbcType="OTHER"
+          typeHandler="com.homelens.handler.JsonNodeTypeHandler"/>
+  <result column="nbDistribution" property="nbDistribution" jdbcType="OTHER"
+          typeHandler="com.homelens.handler.JsonNodeTypeHandler"/>
+  <result column="nbAmenity" property="nbAmenity" jdbcType="OTHER"
+          typeHandler="com.homelens.handler.JsonNodeTypeHandler"/>
+  <result column="nb_poi" property="nbPoi" jdbcType="OTHER"
+          typeHandler="com.homelens.handler.JsonNodeTypeHandler"/>
+  <result column="item_image" property="itemImage" jdbcType="OTHER"
+          typeHandler="com.homelens.handler.JsonNodeTypeHandler"/>
+</resultMap>
+
+	<resultMap id="PropertyResultMap"
+           type="com.homelens.model.response.property.PropertyDetailResponseDto"
+           extends="PropertyBaseMap">
+  <!-- LikeHomeResponseDto가 PropertyDetailResponseDto를 상속하지 않으면,
+       여기서는 type을 LikeHomeResponseDto로 두고,
+       LikeHomeResponseDto 필드명이 base와 호환되는지 확인 필요 -->
+	</resultMap>
+	
+	<resultMap id="PopularPropertyResultMap"
+           type="com.homelens.model.response.property.PopularPropertyResponseDto"
+           extends="PropertyBaseMap">
+		<result column="likeCount7d" property="likeCount7d"/>
+	</resultMap>
+
+
+
+	<select id="exists" resultType="int">
+        SELECT COUNT(*)
+        FROM like_home
+        WHERE user_id = #{userId}
+          AND item_id = #{itemId}
+    </select>
+
+    <insert id="insertByKey">
+        INSERT INTO like_home (user_id, item_id)
+        VALUES (#{userId}, #{itemId})
+    </insert>
+
+    <delete id="deleteByKey">
+        DELETE FROM like_home
+        WHERE user_id = #{userId}
+          AND item_id = #{itemId}
+    </delete>
+
+    <select id="countByItemId" resultType="int">
+        SELECT COUNT(*)
+        FROM like_home
+        WHERE item_id = #{itemId}
+    </select>
+    
+    <select id="findByUserId" resultMap="PropertyResultMap">
+	
+        SELECT
+            p.item_id            AS itemId,
+            p.title,
+            p.sales_type,
+            p.service_type,
+
+            p.local1,
+            p.local2,
+            p.local3,
+            p.jibun_address      AS jibunAddress,
+
+            p.deposit,
+            p.rent,
+            p.manage_cost        AS manageCost,
+            p.manage_not_includes AS manageNotIncludes,
+            
+            p.options,
+            p.area_m2            AS areaM2,
+            p.area_contract_m2   AS areaContractM2,
+            p.floor_level        AS floorLevel,
+            p.all_floors         AS allFloors,
+
+            p.lat,
+            p.lng,
+            
+            p.subway,
+            p.nb_distribution    AS nbDistribution,
+            p.nb_amenity         AS nbAmenity,
+            p.nb_poi,
+            p.item_image
+        FROM property p inner join like_home as lh on p.item_id = lh.item_id
+        WHERE lh.user_id = #{userId}
+    </select>
+    
+    
+    <select id="findTop5LikedPropertiesLast7Days" resultMap="PopularPropertyResultMap">
+	  WITH top AS (
+	    SELECT lh.item_id, COUNT(*) AS likeCount7d
+	    FROM like_home lh
+	    JOIN property p ON p.item_id = lh.item_id
+	    WHERE lh.created_at >= (now() - interval '7 days')
+	      AND p.sold = FALSE
+	    GROUP BY lh.item_id
+	    ORDER BY likeCount7d DESC, lh.item_id DESC
+	    LIMIT 5
+	  )
+	  SELECT
+	    p.item_id AS itemId,
+	    p.title,
+	    p.sales_type,
+	    p.service_type,
+	    p.local1, p.local2, p.local3,
+	    p.jibun_address AS jibunAddress,
+	    p.deposit, p.rent,
+	    p.manage_cost AS manageCost,
+	    p.manage_not_includes AS manageNotIncludes,
+	    p.options,
+	    p.area_m2 AS areaM2,
+	    p.area_contract_m2 AS areaContractM2,
+	    p.floor_level AS floorLevel,
+	    p.all_floors AS allFloors,
+	    p.lat, p.lng,
+	    p.subway,
+	    p.nb_distribution AS nbDistribution,
+	    p.nb_amenity AS nbAmenity,
+	    p.nb_poi,
+	    p.item_image,
+	    top.likeCount7d,
+	
+	    CASE
+	      WHEN #{userId} = 0 THEN FALSE
+	      ELSE (lh_u.user_id IS NOT NULL)
+	    END AS userLike
+	
+	  FROM top
+	  JOIN property p ON p.item_id = top.item_id
+	  LEFT JOIN like_home lh_u
+	    ON lh_u.item_id = p.item_id
+	   AND lh_u.user_id = #{userId}
+	
+	  ORDER BY top.likeCount7d DESC, p.item_id DESC
+	</select>
+
+    
+</mapper>

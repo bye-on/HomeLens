@@ -1,0 +1,25 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://db:5432/homelens
+    username: homelens
+    password: homelens
+    driver-class-name: org.postgresql.Driver
+
+mybatis:
+  mapper-locations: classpath*:mappers/**/*.xml
+  type-aliases-package: com.homelens.model
+  configuration:
+    map-underscore-to-camel-case: true
+
+semantic:
+  api:
+    base-url: http://semantic-api:8000
+
+
+mail:
+  sender:
+    email: ${MAIL_SENDER_EMAIL:}
+    password: ${MAIL_APP_PASSWORD:}
+
+app:
+  verify-base-url: ${APP_VERIFY_BASE_URL:http://localhost}

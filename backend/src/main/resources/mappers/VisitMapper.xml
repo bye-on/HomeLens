@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+        
+        <mapper namespace="com.homelens.mapper.VisitMapper">
+        	
+        	<insert id="insertDailyVisit">
+        		INSERT INTO visit_log (visitor_key, user_id)
+			    VALUES (#{visitorKey}, #{userId})
+			    ON CONFLICT (day, visitor_key) DO NOTHING
+        	</insert>
+        	
+        	<select id="selectDailyVisitors" resultType="com.homelens.model.response.visit.DailyVisitCountRequestDto">
+        		SELECT
+			      to_char(day, 'YYYY-MM-DD') AS day,
+			      COUNT(*) AS visitors
+			    FROM visit_log
+			    WHERE day >= #{fromDay}
+			    GROUP BY day
+			    ORDER BY day
+        	</select>
+        </mapper>

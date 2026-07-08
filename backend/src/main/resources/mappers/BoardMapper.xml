@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.homelens.mapper.BoardMapper">
+	<resultMap type="BoardDetailResponseDto" id="boardDetail">
+		<id column="board_id" property="boardId" />
+		<result column="user_id" property="publisherId"/>
+		<result column="title" property="subject"/>
+		<result column="content" property="content"/>
+		<result column="created_at" property="registerTime"/>
+		<result column="user_name" property="userName"/>
+	</resultMap>
+	
+	<resultMap type="BoardResponseDto" id="boardTitle">
+		<id column="board_id" property="boardId" />
+		<result column="user_id" property="publisherId"/>
+		<result column="title" property="subject"/>
+		<result column="created_at" property="registerTime"/>
+		<result column="user_name" property="userName"/>
+	</resultMap>
+
+	<select id="selectAll" resultMap="boardTitle" parameterType="PageRequestDto">
+		SELECT board_id, b.user_id, title, created_at, user_name
+		FROM board as b
+		inner join user_info as u on b.user_id=u.user_id
+		ORDER BY created_at DESC
+		LIMIT #{size} OFFSET #{offset} 
+	</select>
+	
+	<select id="countBoard">
+		select count(*) from board
+	</select>
+	
+	<select id="selectById" parameterType="int" resultMap="boardDetail">
+		SELECT board_id, b.user_id, title, content, created_at, user_name
+    	FROM board as b
+    	inner join user_info as u on b.user_id=u.user_id
+    	WHERE board_id = #{boardId}
+	</select>
+	
+	<insert id="write" parameterType="WriteBoardRequestDto">
+		INSERT INTO Board (user_id, title, content) 
+		VALUES (#{publisherId}, #{subject}, #{content})
+	</insert>
+	
+	<update id="edit" parameterType="map">
+		update board set title=#{boardDto.subject}, content=#{boardDto.content} 
+		where board_id = #{boardId}
+	</update>
+	
+	<delete id="delete" parameterType="int">
+		delete from board
+		where board_id = #{boardId}
+	</delete>
+</mapper> 

@@ -1,0 +1,39 @@
+package com.homelens.exception;
+
+import org.springframework.http.HttpStatus;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+
+@Getter
+@AllArgsConstructor
+public enum ErrorCode {
+	
+	// 1. 공통 에러
+	BAD_REQUEST(HttpStatus.BAD_REQUEST, "BAD_REQUEST"),
+	FORBIDDEN(HttpStatus.FORBIDDEN, "FORBIDDEN"),
+	NOT_FOUND(HttpStatus.NOT_FOUND, "NOT_FOUND"),
+	MISSING_PARAMETER(HttpStatus.BAD_REQUEST, "BAD_REQUEST"),
+
+	INTERNAL_SERVER_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "INTERNAL_SERVER_ERROR"),
+	
+	// 2. 게시판 에러
+	BOARD_UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "BOARD_UNAUTHORIZED"),
+	BOARD_CREATE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "BOARD_CREATE_FAILED"),
+	BOARD_UPDATE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "BOARD_UPDATE_FAILED"),
+	BOARD_DELETE_FAILED(HttpStatus.INTERNAL_SERVER_ERROR, "BOARD_DELETE_FAILED"),
+	
+	// 3. 인증-인가
+	USER_UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "USER_UNAUTHORIZED"),
+	USER_FORBIDDEN(HttpStatus.FORBIDDEN, "USER_FORBIDDEN"),
+	USER_NOT_FOUND(HttpStatus.NOT_FOUND, "USER_NOT_FOUND"),
+	
+	// 4. 부동산
+	PROPERTY_NOT_FOUND(HttpStatus.NOT_FOUND, "PROPERTY_NOT_FOUND"),
+	INVALID_QUERY(HttpStatus.BAD_REQUEST, "INVALID_QUERY"),
+	REGION_NOT_FOUND(HttpStatus.NOT_FOUND, "REGION_NOT_FOUND")
+	;
+	
+	private HttpStatus httpStatus;
+	private String code;
+}

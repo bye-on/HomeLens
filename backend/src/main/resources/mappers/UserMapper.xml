@@ -1,0 +1,100 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.homelens.mapper.UserMapper">
+
+	<resultMap id="FindUserInfoMap" type="com.homelens.model.response.user.UserResponseDto">
+	    <id     column="user_id"         property="userId"/>
+	    <result column="user_email"      property="userEmail"/>
+	   	<result column="user_pw"      property="userPw"/>
+	    <result column="user_name"       property="userName"/>
+	    <result column="user_tel"        property="userTel"/>
+	    <result column="user_role"       property="userRole"/>
+	    <result column="user_created_at" property="userCreatedAt"/>
+	    <result column="user_refresh_token" property="userRefreshToken"/>
+	    <result column="user_email_verified" property="userEmailVerified"/>
+	    <result column="user_status" property="userStatus"/>
+	</resultMap>
+	
+	<resultMap id="FindUserDetailMap" type="com.homelens.model.response.user.UserDetailResponseDto">
+	    <id     column="user_id"         property="userId"/>
+	    <result column="user_email"      property="userEmail"/>
+	    <result column="user_name"       property="userName"/>
+	    <result column="user_tel"        property="userTel"/>
+	    <result column="user_role" property="userRole"/>
+	    <result column="user_email_verified" property="userEmailVerified"/>
+	    <result column="user_status" property="userStatus"/>
+	    <result column="user_created_at" property="userCreatedAt"/>
+	</resultMap>
+    
+    <insert id="signUp">
+	  insert into user_info (user_name, user_pw, user_email, user_tel)
+	  VALUES (#{userName}, #{userPw}, #{userEmail}, #{userTel})
+	</insert>
+
+    <select id="existsByUsername">
+    	select count(user_id) from user_info where user_name = #{username}
+    </select>
+    
+    <select id="existsByEmail">
+    	select count(user_id) from user_info where user_email = #{email}
+    </select>
+    
+    <select id="existsByUserId">
+    	select count(user_id) from user_info where user_id = #{user_id}
+    </select>
+    
+    <select id="findByUsername" resultMap="FindUserInfoMap">
+    	select * from user_info where user_name = #{username}
+    </select>
+    
+    <select id="findByEmail" resultMap="FindUserInfoMap">
+    	select * from user_info where user_email = #{email}
+    </select>
+    
+    <select id="findByUserId" resultMap="FindUserDetailMap">
+    	select * from user_info where user_id = #{user_id}
+    </select>
+    
+    <select id="getAllUsers" resultMap="FindUserDetailMap" parameterType="PageRequestDto">
+    	select * from user_info 
+    	where user_status != 'deleted'
+    	ORDER BY user_created_at DESC
+		LIMIT #{size} OFFSET #{offset}
+    </select>
+    
+    <update id="softDeleteUsers">
+    	update user_info set user_status = 'deleted' where user_id = #{user_id}
+    </update>
+    
+    <update id="updateUserRefreshToken">
+    	update user_info set user_refresh_token=#{userRefreshToken}
+    	where user_id=#{userId}
+    </update>
+    
+    <update id="setEmailVerified">
+    UPDATE user_info
+    SET user_email_verified = TRUE
+    WHERE user_id = #{userId}
+  </update>
+  
+  <update id="logout">
+  	update user_info set user_refresh_token=null where user_id = #{userId}
+  </update>
+  
+  <update id="updateUserInfo">
+  	update user_info set user_name=#{userName}, user_tel=#{userTel}
+  	where user_id=#{userId}
+  </update>
+  
+  <update id="updateUserPassword">
+  	update user_info set user_pw=#{userPw} where user_id=#{userId}
+  </update>
+  
+  <select id="countUser">
+	select count(*) from user_info where user_status != 'deleted'
+  </select>
+  
+</mapper>

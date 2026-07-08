@@ -1,0 +1,19 @@
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*secret*
+*credentials*
+
+# Project output artifacts
+/output/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

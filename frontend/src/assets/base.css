@@ -1,0 +1,51 @@
+/* CSS 변수 정의 */
+:root {
+  /* 색상 */
+  --color-primary: #667eea;
+  --color-primary-dark: #764ba2;
+  --color-accent: #f472b6;
+
+  --color-background: #ffffff;
+  --color-background-soft: #f8fafc;
+  --color-background-mute: #f1f5f9;
+
+  --color-text: #1a1a2e;
+  --color-text-soft: #475569;
+  --color-text-mute: #94a3b8;
+  
+  --color-border: #e2e8f0;
+  --color-border-hover: #cbd5e1;
+  
+  /* 그라디언트 */
+  --gradient-primary: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --gradient-accent: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  
+  /* 그림자 */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.15);
+
+  /* 간격 */
+  --section-gap: 160px;
+  
+  /* 트랜지션 */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.25s ease;
+  --transition-slow: 0.35s ease;
+  
+  /* 반지름 */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-full: 9999px;
+}
+
+/* 다크 모드 (선택적) */
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* 다크 모드에서는 기본 라이트 테마 유지 */
+    /* 필요시 여기에 다크 테마 변수 정의 */
+  }
+}

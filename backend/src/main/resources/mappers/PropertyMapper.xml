@@ -1,0 +1,235 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.homelens.mapper.PropertyMapper">
+
+    <resultMap id="PropertyResultMap" type="com.homelens.model.response.property.PropertyDetailResponseDto">
+        <!-- PK -->
+        <id     column="itemId"       property="itemId"/>
+
+        <!-- 湲곕낯 ?뺣낫 -->
+        <result column="title"        property="title"/>
+        <result column="sales_type"        property="salesType"/>
+        <result column="service_type"        property="serviceType"/>
+        
+
+        <!-- 二쇱냼 ?뺣낫 -->
+        <result column="local1"       property="local1"/>
+        <result column="local2"       property="local2"/>
+        <result column="local3"       property="local3"/>
+        <result column="jibunAddress" property="jibunAddress"/>
+
+        <!-- 湲덉븸/硫댁쟻 -->
+        <result column="deposit"        property="deposit"/>
+        <result column="rent"           property="rent"/>
+        <result column="manageCost"     property="manageCost"/>
+        <result column="manageNotIncludes" property="manageNotIncludes"/>
+        <result column="options" property="options"/>
+
+        <result column="areaM2"          property="areaM2"/>
+        <result column="areaContractM2"  property="areaContractM2"/>
+
+        <!-- 痢듭닔 -->
+        <result column="floorLevel"    property="floorLevel"/>
+        <result column="allFloors"     property="allFloors"/>
+
+        <!-- ?꾩튂 -->
+        <result column="lat"           property="lat"/>
+        <result column="lng"           property="lng"/>
+        
+        <result column="user_count" property="userCount"/>
+        <result column="user_like" property="userLike"/>
+        <result column="sold" property="sold"/>
+
+        <!-- JSON ?꾨뱶: JsonNode + TypeHandler -->
+        <result column="subway"
+                property="subway"
+                jdbcType="OTHER"
+                typeHandler="com.homelens.handler.JsonNodeTypeHandler"/>
+                
+        <result column="nbDistribution"
+                property="nbDistribution"
+                jdbcType="OTHER"
+                typeHandler="com.homelens.handler.JsonNodeTypeHandler"/>
+
+        <result column="nbAmenity"
+                property="nbAmenity"
+                jdbcType="OTHER"
+                typeHandler="com.homelens.handler.JsonNodeTypeHandler"/>
+
+        <result column="nb_poi"
+                property="nbPoi"
+                jdbcType="OTHER"
+                typeHandler="com.homelens.handler.JsonNodeTypeHandler"/>
+
+        <result column="item_image"
+                property="itemImage"
+                jdbcType="OTHER"
+                typeHandler="com.homelens.handler.JsonNodeTypeHandler"/>
+    
+    </resultMap>
+
+    <!-- 1) ?꾨쿋??湲곕컲 + ?섎뱶 ?꾪꽣 寃??-->
+    <select id="selectBySemanticFilters"
+            parameterType="com.homelens.model.request.property.PropertySearchRequestDto"
+            resultMap="PropertyResultMap">
+        SELECT
+            item_id AS itemId, title, sales_type, service_type,
+	        local1, local2, local3, jibun_address      AS jibunAddress,
+	        deposit, rent, manage_cost AS manageCost, manage_not_includes AS manageNotIncludes,
+	        area_m2 AS areaM2, area_contract_m2 AS areaContractM2,
+	        floor_level AS floorLevel, all_floors AS allFloors,
+	        lat, lng, options,
+            subway, nb_distribution AS nbDistribution, nb_amenity AS nbAmenity, nb_poi, item_image
+        FROM property
+        <where>
+            <if test="salesType != null and salesType != ''">
+                AND sales_type = #{salesType}
+            </if>
+            <if test="serviceType != null and serviceType != ''">
+                AND service_type = #{serviceType}
+            </if>
+            <if test="local1 != null and local1 != ''">
+                AND local1 = #{local1}
+            </if>
+            <if test="local2 != null and local2 != ''">
+                AND local2 = #{local2}
+            </if>
+            <if test="local3 != null and local3 != ''">
+                AND local3 = #{local3}
+            </if>
+            <if test="depositMin != null">
+                AND deposit &gt;= #{depositMin}
+            </if>
+            <if test="depositMax != null">
+                AND deposit &lt;= #{depositMax}
+            </if>
+            <if test="rentMax != null">
+                AND rent &lt;= #{rentMax}
+            </if>
+            <if test="areaMin != null">
+                AND area_m2 &gt;= #{areaMin}
+            </if>
+            <if test="areaMax != null">
+                AND area_m2 &lt;= #{areaMax}
+            </if>
+            <if test="manageCostMax != null">
+                AND manage_cost &lt;= #{manageCostMax}
+            </if>
+        </where>
+        ORDER BY embedding &lt;-&gt; CAST(#{embeddingLiteral} AS vector(1536))
+        LIMIT #{topK}
+    </select>
+
+    <!-- 2) 吏???뺣낫留뚯쑝濡??꾪꽣留곷맂 由ъ뒪??-->
+    <select id="selectByRegion"
+            parameterType="com.homelens.model.request.property.PropertySearchRequestDto"
+            resultMap="PropertyResultMap">
+        SELECT
+            item_id AS itemId, title, sales_type, service_type,
+	        local1, local2, local3, jibun_address      AS jibunAddress,
+	        deposit, rent, manage_cost AS manageCost, manage_not_includes AS manageNotIncludes,
+	        area_m2 AS areaM2, area_contract_m2 AS areaContractM2,
+	        floor_level AS floorLevel, all_floors AS allFloors,
+	        lat, lng, options,
+            subway, nb_distribution AS nbDistribution, nb_amenity AS nbAmenity, nb_poi, item_image
+        FROM property
+        <where>
+            <if test="local1 != null and local1 != ''">
+                AND local1 = #{local1}
+            </if>
+            <if test="local2 != null and local2 != ''">
+                AND local2 = #{local2}
+            </if>
+            <if test="local3 != null and local3 != ''">
+                AND local3 = #{local3}
+            </if>
+            
+            <if test="primaryList != null and primaryList.size() > 0">
+            AND item_id NOT IN
+            <foreach collection="primaryList" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+        </if>
+        </where>
+        ORDER BY embedding &lt;-&gt; CAST(#{embeddingLiteral} AS vector(1536))
+        LIMIT #{regionLimit}
+    </select>
+    
+    <select id="selectPropertyByItemId"
+            parameterType="com.homelens.model.request.property.PropertySearchRequestDto"
+            resultMap="PropertyResultMap">
+        SELECT
+            item_id AS itemId, title, sales_type, service_type,
+	        local1, local2, local3, jibun_address      AS jibunAddress,
+	        deposit, rent, manage_cost AS manageCost, manage_not_includes AS manageNotIncludes,
+	        area_m2 AS areaM2, area_contract_m2 AS areaContractM2,
+	        floor_level AS floorLevel, all_floors AS allFloors,
+	        lat, lng, options,
+            subway, nb_distribution AS nbDistribution, nb_amenity AS nbAmenity, nb_poi, item_image
+        FROM property
+        where item_id=#{itemId}
+    </select>
+    
+    <select id="selectRecentProperty" resultMap="PropertyResultMap" parameterType="PageRequestDto">
+    	SELECT
+            item_id AS itemId, title, sales_type, service_type,
+	        local1, local2, local3, jibun_address      AS jibunAddress,
+	        deposit, rent, manage_cost AS manageCost, manage_not_includes AS manageNotIncludes,
+	        area_m2 AS areaM2, area_contract_m2 AS areaContractM2,
+	        floor_level AS floorLevel, all_floors AS allFloors,
+	        lat, lng, options,
+            subway, nb_distribution AS nbDistribution, nb_amenity AS nbAmenity, nb_poi, item_image
+        FROM property
+        order by itemId desc
+        LIMIT #{size} OFFSET #{offset}
+    </select>
+    <select id="selectByBasicSearch"
+            parameterType="com.homelens.model.request.property.PropertySearchRequestDto"
+            resultMap="PropertyResultMap">
+        SELECT
+            item_id AS itemId, title, sales_type, service_type,
+            local1, local2, local3, jibun_address AS jibunAddress,
+            deposit, rent, manage_cost AS manageCost, manage_not_includes AS manageNotIncludes,
+            area_m2 AS areaM2, area_contract_m2 AS areaContractM2,
+            floor_level AS floorLevel, all_floors AS allFloors,
+            lat, lng, options,
+            subway, nb_distribution AS nbDistribution, nb_amenity AS nbAmenity, nb_poi, item_image
+        FROM property
+        <where>
+            <if test="keywords != null and keywords.size() > 0">
+                <foreach collection="keywords" item="keyword">
+                    AND (
+                        CAST(item_id AS TEXT) = #{keyword}
+                        OR title ILIKE CONCAT('%', #{keyword}, '%')
+                        OR local1 ILIKE CONCAT('%', #{keyword}, '%')
+                        OR local2 ILIKE CONCAT('%', #{keyword}, '%')
+                        OR local3 ILIKE CONCAT('%', #{keyword}, '%')
+                        OR jibun_address ILIKE CONCAT('%', #{keyword}, '%')
+                    )
+                </foreach>
+            </if>
+        </where>
+        ORDER BY item_id DESC
+        LIMIT #{topK}
+    </select>
+    
+    <select id="selectLocal1" parameterType="com.homelens.model.request.property.RegionSearchRequestDto">
+    	select distinct local1 from region order by 1
+    </select>
+    
+    <select id="selectLocal2" parameterType="com.homelens.model.request.property.RegionSearchRequestDto">
+    	select distinct local2 from region where local1=#{local1} order by 1
+    </select>
+    
+    <select id="selectLocal3" parameterType="com.homelens.model.request.property.RegionSearchRequestDto">
+    	select distinct local3 from region where local1=#{local1} and local2=#{local2} order by 1
+    </select>
+    
+    <select id="countProperty">
+		select count(item_id) from property
+	</select>
+
+</mapper>
