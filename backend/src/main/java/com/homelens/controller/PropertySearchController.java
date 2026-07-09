@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.homelens.common.SuccessResponse;
 import com.homelens.model.request.PageRequestDto;
+import com.homelens.model.request.property.MapSearchRequestDto;
 import com.homelens.model.request.property.PropertySearchByIdRequestDto;
 import com.homelens.model.request.property.RegionSearchRequestDto;
 import com.homelens.model.request.property.SearchRequestDto;
@@ -42,6 +43,11 @@ public class PropertySearchController {
 		SearchResultResponseDto result = propertySearchService.propertyBasicSearch(req);
 		return ResponseEntity.ok(new SuccessResponse<>("매물 일반 검색 성공", result));
 	}
+	@GetMapping("/map")
+	public ResponseEntity<?> selectMapProperties(@ModelAttribute MapSearchRequestDto req){
+		return ResponseEntity.ok(new SuccessResponse<>("지도 매물 조회 성공", propertySearchService.selectMapProperties(req)));
+	}
+
 	@GetMapping("/{itemId}")
 	public ResponseEntity<?> selectByItemId(@PathVariable int itemId){
 		PropertySearchByIdRequestDto propertySearchByIdRequestDto = new PropertySearchByIdRequestDto();

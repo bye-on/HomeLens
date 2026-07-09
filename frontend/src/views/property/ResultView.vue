@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { KakaoMap, KakaoMapMarker, KakaoMapCustomOverlay } from 'vue3-kakao-maps'
+import { KakaoMap, KakaoMapCustomOverlay } from 'vue3-kakao-maps'
 import PropertyCard from '@/components/property/PropertyCard.vue'
 import PropertyDetail from '@/components/property/PropertyDetail.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
@@ -13,41 +13,120 @@ const router = useRouter()
 const authStore = useAuthStore()
 
 const showUserMenu = ref(false)
+const isLoading = ref(true)
 const searchQuery = ref((route.query.q as string) || '')
 const searchMode = ref<'basic' | 'ai'>((route.query.mode as string) === 'ai' ? 'ai' : 'basic')
-const isLoading = ref(true)
 const properties = ref<PropertyData[]>([])
 const selectedProperty = ref<PropertyData | null>(null)
+const selectedCluster = ref<PropertyCluster | null>(null)
 const detailProperty = ref<PropertyData | null>(null)
 const showDetail = ref(false)
 const map = ref<kakao.maps.Map>()
+const mapLevel = ref(7)
+const isMapMode = computed(() => searchMode.value !== 'ai')
+const isRefreshingMap = ref(false)
+let mapFetchTimer: ReturnType<typeof setTimeout> | null = null
+const mapEventHandlers: Array<{ type: string; handler: () => void }> = []
 
-const modeLabel = computed(() => (searchMode.value === 'ai' ? 'AI 검색' : '일반 검색'))
-const loadingTitle = computed(() =>
-  searchMode.value === 'ai' ? 'AI가 매물을 찾고 있어요' : '매물을 검색하고 있어요',
-)
-const resultTitle = computed(() =>
-  searchMode.value === 'ai' ? 'AI 추천 결과' : '일반 검색 결과',
-)
+const selectedDo = ref<string | null>((route.query.local1 as string) || null)
+const selectedSi = ref<string | null>((route.query.local2 as string) || null)
+const selectedDong = ref<string | null>((route.query.local3 as string) || null)
+const doList = ref<string[]>([])
+const siList = ref<string[]>([])
+const dongList = ref<string[]>([])
+const openRegionMenu = ref<'do' | 'si' | 'dong' | null>(null)
+const isLoadingRegion = ref(false)
 
-const fetchProperties = async () => {
-  isLoading.value = true
-  try {
-    const response = await propertyApi.search(searchQuery.value, searchMode.value)
-    properties.value = [...(response.primary || []), ...(response.regionOnly || [])]
-    selectedProperty.value = properties.value[0] ?? null
-  } catch (error) {
-    console.error('매물 검색 실패:', error)
-    properties.value = []
-    selectedProperty.value = null
-  } finally {
-    isLoading.value = false
-  }
+interface PropertyCluster {
+  id: string
+  lat: number
+  lng: number
+  count: number
+  properties: PropertyData[]
 }
 
-const onLoadKakaoMap = (mapRef: kakao.maps.Map) => {
-  map.value = mapRef
-  if (properties.value.length === 0) return
+const resultLabel = computed(() => {
+  if (searchMode.value === 'ai') return 'AI 추천 매물'
+  if (searchQuery.value) return '지역 검색 매물'
+  return '전체 매물 지도'
+})
+
+const regionLabel = computed(() => {
+  return [selectedDo.value, selectedSi.value, selectedDong.value].filter(Boolean).join(' ')
+})
+
+const listedProperties = computed(() => selectedCluster.value?.properties ?? properties.value)
+
+const visibleClusters = computed<PropertyCluster[]>(() => {
+  const level = mapLevel.value
+  const step =
+    level <= 4
+      ? 0.0008
+      : level <= 6
+        ? 0.003
+        : level <= 8
+          ? 0.008
+          : level <= 10
+            ? 0.02
+            : 0.05
+
+  const clusterMap = new Map<string, PropertyData[]>()
+
+  properties.value.forEach((property) => {
+    const latKey = Math.floor(property.lat / step)
+    const lngKey = Math.floor(property.lng / step)
+    const key = `${latKey}:${lngKey}`
+    const bucket = clusterMap.get(key) || []
+    bucket.push(property)
+    clusterMap.set(key, bucket)
+  })
+
+  return Array.from(clusterMap.entries()).map(([id, clusterProperties]) => {
+    const lat =
+      clusterProperties.reduce((sum, property) => sum + property.lat, 0) / clusterProperties.length
+    const lng =
+      clusterProperties.reduce((sum, property) => sum + property.lng, 0) / clusterProperties.length
+
+    return {
+      id,
+      lat,
+      lng,
+      count: clusterProperties.length,
+      properties: clusterProperties,
+    }
+  })
+})
+
+const mapCenter = computed(() => {
+  if (selectedProperty.value) {
+    return { lat: selectedProperty.value.lat, lng: selectedProperty.value.lng }
+  }
+
+  if (properties.value.length > 0) {
+    const lat = properties.value.reduce((sum, property) => sum + property.lat, 0) / properties.value.length
+    const lng = properties.value.reduce((sum, property) => sum + property.lng, 0) / properties.value.length
+    return { lat, lng }
+  }
+
+  return { lat: 37.5665, lng: 126.978 }
+})
+
+const formatPrice = (deposit: number, rent: number, salesType: string | null) => {
+  if (salesType === '전세') {
+    if (deposit >= 10000) return `${(deposit / 10000).toFixed(1)}억`
+    return `${deposit.toLocaleString()}만`
+  }
+  return `${deposit.toLocaleString()}/${rent.toLocaleString()}`
+}
+
+const setProperties = (nextProperties: PropertyData[]) => {
+  properties.value = nextProperties
+  selectedCluster.value = null
+  selectedProperty.value = nextProperties[0] ?? null
+}
+
+const fitMapToProperties = () => {
+  if (!map.value || properties.value.length === 0) return
 
   const bounds = new kakao.maps.LatLngBounds()
   properties.value.forEach((property) => {
@@ -56,23 +135,186 @@ const onLoadKakaoMap = (mapRef: kakao.maps.Map) => {
   map.value.setBounds(bounds)
 }
 
-const mapCenter = computed(() => {
-  if (selectedProperty.value) {
-    return {
-      lat: selectedProperty.value.lat,
-      lng: selectedProperty.value.lng,
+const fetchProperties = async () => {
+  isLoading.value = true
+  try {
+    if (searchMode.value === 'ai' && searchQuery.value) {
+      const response = await propertyApi.search(searchQuery.value, searchMode.value)
+      setProperties([...(response.primary || []), ...(response.regionOnly || [])])
+      fitMapToProperties()
+      return
     }
-  }
-  if (properties.value.length > 0) {
-    const avgLat = properties.value.reduce((sum, property) => sum + property.lat, 0) / properties.value.length
-    const avgLng = properties.value.reduce((sum, property) => sum + property.lng, 0) / properties.value.length
-    return { lat: avgLat, lng: avgLng }
-  }
-  return { lat: 37.5665, lng: 126.978 }
-})
 
-const selectProperty = (property: PropertyData) => {
+    if (map.value) {
+      await fetchMapProperties()
+      return
+    }
+
+    const response = await propertyApi.getMapProperties({
+      local1: selectedDo.value || undefined,
+      local2: selectedSi.value || undefined,
+      local3: selectedDong.value || undefined,
+      size: 1000,
+    })
+    setProperties(response || [])
+  } catch (error) {
+    console.error('매물 검색 실패:', error)
+    setProperties([])
+  } finally {
+    isLoading.value = false
+  }
+}
+
+const getMapBoundsParams = () => {
+  if (!map.value) return {}
+
+  const bounds = map.value.getBounds()
+  const sw = bounds.getSouthWest()
+  const ne = bounds.getNorthEast()
+
+  return {
+    swLat: sw.getLat(),
+    swLng: sw.getLng(),
+    neLat: ne.getLat(),
+    neLng: ne.getLng(),
+  }
+}
+
+const fetchMapProperties = async () => {
+  if (!isMapMode.value) return
+
+  isRefreshingMap.value = true
+  try {
+    const response = await propertyApi.getMapProperties({
+      ...getMapBoundsParams(),
+      local1: selectedDo.value || undefined,
+      local2: selectedSi.value || undefined,
+      local3: selectedDong.value || undefined,
+      size: 1200,
+    })
+    setProperties(response || [])
+  } catch (error) {
+    console.error('지도 매물 조회 실패:', error)
+    setProperties([])
+  } finally {
+    isLoading.value = false
+    isRefreshingMap.value = false
+  }
+}
+
+const scheduleMapRefresh = () => {
+  if (!isMapMode.value) return
+
+  if (mapFetchTimer) {
+    clearTimeout(mapFetchTimer)
+  }
+
+  mapFetchTimer = setTimeout(() => {
+    mapLevel.value = map.value?.getLevel() ?? mapLevel.value
+    fetchMapProperties()
+  }, 250)
+}
+
+const loadDoList = async () => {
+  openRegionMenu.value = openRegionMenu.value === 'do' ? null : 'do'
+  if (doList.value.length > 0 || openRegionMenu.value !== 'do') return
+
+  isLoadingRegion.value = true
+  try {
+    doList.value = await propertyApi.getDo()
+  } finally {
+    isLoadingRegion.value = false
+  }
+}
+
+const loadSiList = async () => {
+  if (!selectedDo.value) return
+  openRegionMenu.value = openRegionMenu.value === 'si' ? null : 'si'
+  if (siList.value.length > 0 || openRegionMenu.value !== 'si') return
+
+  isLoadingRegion.value = true
+  try {
+    siList.value = await propertyApi.getSi(selectedDo.value)
+  } finally {
+    isLoadingRegion.value = false
+  }
+}
+
+const loadDongList = async () => {
+  if (!selectedDo.value || !selectedSi.value) return
+  openRegionMenu.value = openRegionMenu.value === 'dong' ? null : 'dong'
+  if (dongList.value.length > 0 || openRegionMenu.value !== 'dong') return
+
+  isLoadingRegion.value = true
+  try {
+    dongList.value = await propertyApi.getDong(selectedDo.value, selectedSi.value)
+  } finally {
+    isLoadingRegion.value = false
+  }
+}
+
+const selectDo = (doName: string) => {
+  selectedDo.value = doName
+  selectedSi.value = null
+  selectedDong.value = null
+  siList.value = []
+  dongList.value = []
+  openRegionMenu.value = null
+}
+
+const selectSi = (siName: string) => {
+  selectedSi.value = siName
+  selectedDong.value = null
+  dongList.value = []
+  openRegionMenu.value = null
+}
+
+const selectDong = (dongName: string) => {
+  selectedDong.value = dongName
+  openRegionMenu.value = null
+}
+
+const applyRegionSearch = () => {
+  const query = regionLabel.value.trim()
+  router.push({
+    path: '/result',
+    query: {
+      ...(query ? { q: query } : {}),
+      mode: 'basic',
+      local1: selectedDo.value || undefined,
+      local2: selectedSi.value || undefined,
+      local3: selectedDong.value || undefined,
+    },
+  })
+}
+
+const clearRegionSearch = () => {
+  selectedDo.value = null
+  selectedSi.value = null
+  selectedDong.value = null
+  siList.value = []
+  dongList.value = []
+  openRegionMenu.value = null
+  router.push('/result')
+}
+
+const focusProperty = (property: PropertyData, open = false) => {
   selectedProperty.value = property
+  map.value?.panTo(new kakao.maps.LatLng(property.lat, property.lng))
+  if (open) openDetail(property)
+}
+
+const focusCluster = (cluster: PropertyCluster) => {
+  if (!map.value) return
+
+  selectedCluster.value = cluster
+  selectedProperty.value = cluster.properties[0] ?? null
+  map.value.panTo(new kakao.maps.LatLng(cluster.lat, cluster.lng))
+}
+
+const clearSelectedCluster = () => {
+  selectedCluster.value = null
+  selectedProperty.value = properties.value[0] ?? null
 }
 
 const openDetail = (property: PropertyData) => {
@@ -92,80 +334,112 @@ const handlePropertyUpdate = (updatedProperty: PropertyData) => {
   if (selectedProperty.value?.itemId === updatedProperty.itemId) {
     selectedProperty.value = updatedProperty
   }
+
   const index = properties.value.findIndex((property) => property.itemId === updatedProperty.itemId)
   if (index !== -1) {
     properties.value[index] = updatedProperty
   }
 }
 
-const goBack = () => {
+const onLoadKakaoMap = (mapRef: kakao.maps.Map) => {
+  map.value = mapRef
+  mapLevel.value = mapRef.getLevel()
+
+  const refreshHandler = () => scheduleMapRefresh()
+  kakao.maps.event.addListener(mapRef, 'dragend', refreshHandler)
+  kakao.maps.event.addListener(mapRef, 'zoom_changed', refreshHandler)
+  mapEventHandlers.push({ type: 'dragend', handler: refreshHandler })
+  mapEventHandlers.push({ type: 'zoom_changed', handler: refreshHandler })
+
+  fetchMapProperties()
+}
+
+const goHome = () => {
   router.push('/')
 }
 
-const formatPrice = (deposit: number, rent: number, salesType: string | null) => {
-  if (salesType === '전세') {
-    if (deposit >= 10000) return `${(deposit / 10000).toFixed(1)}억`
-    return `${deposit.toLocaleString()}만`
-  }
-  return `${deposit.toLocaleString()}/${rent.toLocaleString()}`
-}
+watch(
+  () => route.query,
+  () => {
+    searchQuery.value = (route.query.q as string) || ''
+    searchMode.value = (route.query.mode as string) === 'ai' ? 'ai' : 'basic'
+    selectedDo.value = (route.query.local1 as string) || null
+    selectedSi.value = (route.query.local2 as string) || null
+    selectedDong.value = (route.query.local3 as string) || null
+    fetchProperties()
+  },
+)
 
 onMounted(() => {
   fetchProperties()
 })
+
+onUnmounted(() => {
+  if (mapFetchTimer) {
+    clearTimeout(mapFetchTimer)
+  }
+
+  const mapRef = map.value
+  if (mapRef) {
+    mapEventHandlers.forEach(({ type, handler }) => {
+      kakao.maps.event.removeListener(mapRef, type, handler)
+    })
+  }
+})
 </script>
 
 <template>
-  <div class="flex flex-col h-screen bg-gray-50">
-    <header class="flex items-center gap-2 justify-between px-6 h-16 bg-white border-b border-gray-200">
+  <div class="flex h-screen flex-col bg-gray-50">
+    <header class="flex h-16 items-center justify-between border-b border-gray-200 bg-white px-6">
       <div class="flex items-center gap-4">
         <button
-          class="w-10 h-10 flex items-center justify-center bg-gray-100 rounded-lg text-gray-500 hover:bg-gray-200 hover:text-gray-900 transition-colors"
-          aria-label="뒤로가기"
-          @click="goBack"
+          class="flex h-10 w-10 items-center justify-center rounded-lg bg-gray-100 text-gray-500 transition-colors hover:bg-gray-200 hover:text-gray-900"
+          aria-label="홈으로 이동"
+          @click="goHome"
         >
-          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M19 12H5M12 19l-7-7 7-7" />
           </svg>
         </button>
-        <div class="cursor-pointer" @click="goBack">
+        <button class="text-left" @click="goHome">
           <span class="text-xl font-extrabold text-primary-main">Home</span>
           <span class="text-xl font-extrabold text-text-mute">Lens</span>
-        </div>
+        </button>
       </div>
 
-      <div class="hidden sm:flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-full text-sm text-gray-600 min-w-0">
-        <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <div class="hidden min-w-0 items-center gap-2 rounded-full bg-gray-100 px-4 py-2 text-sm text-gray-600 sm:flex">
+        <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="8" />
           <path d="M21 21l-4.35-4.35" />
         </svg>
-        <span class="flex-1 truncate min-w-0">{{ searchQuery || modeLabel }}</span>
+        <span class="truncate">{{ searchQuery || '전체 매물' }}</span>
       </div>
 
       <div class="flex items-center gap-4">
-        <span class="hidden lg:block text-sm text-gray-500 font-medium min-w-auto truncate">
-          {{ properties.length }}개 매물
+        <span class="hidden text-sm font-medium text-gray-500 lg:block">
+          {{ properties.length.toLocaleString() }}개 매물
+          <span v-if="isRefreshingMap" class="ml-1 text-primary-main">갱신 중</span>
         </span>
         <template v-if="authStore.isLoggedIn">
           <div class="relative">
             <button
-              class="w-9 h-9 rounded-full bg-primary-main text-white flex items-center justify-center font-semibold text-sm"
+              class="flex h-9 w-9 items-center justify-center rounded-full bg-primary-main text-sm font-semibold text-white"
               @click="showUserMenu = !showUserMenu"
             >
               {{ authStore.userName.charAt(0) }}
             </button>
             <div
               v-if="showUserMenu"
-              class="absolute top-full right-0 mt-2 w-36 bg-white border border-gray-200 rounded-xl shadow-lg p-2 z-50"
+              class="absolute right-0 top-full z-50 mt-2 w-36 rounded-xl border border-gray-200 bg-white p-2 shadow-lg"
             >
               <button
-                class="w-full px-4 py-2.5 text-left text-sm text-gray-600 rounded-lg hover:bg-gray-100"
+                class="w-full rounded-lg px-4 py-2.5 text-left text-sm text-gray-600 hover:bg-gray-100"
                 @click="router.push('/mypage')"
               >
                 마이페이지
               </button>
               <button
-                class="w-full px-4 py-2.5 text-left text-sm text-red-500 rounded-lg hover:bg-red-50"
+                class="w-full rounded-lg px-4 py-2.5 text-left text-sm text-red-500 hover:bg-red-50"
                 @click="authStore.logout()"
               >
                 로그아웃
@@ -173,137 +447,206 @@ onMounted(() => {
             </div>
           </div>
         </template>
-        <template v-else>
-          <button
-            class="px-5 py-2.5 bg-primary-main text-white text-sm font-semibold rounded-lg hover:bg-secondary-main transition-colors"
-            @click="router.push('/login')"
-          >
-            로그인
-          </button>
-        </template>
+        <button
+          v-else
+          class="rounded-lg bg-primary-main px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-secondary-main"
+          @click="router.push('/login')"
+        >
+          로그인
+        </button>
       </div>
     </header>
 
-    <div v-if="isLoading" class="flex-1 flex items-center justify-center bg-gray-50">
-      <div class="flex flex-col items-center gap-6">
-        <div class="relative">
-          <div class="w-24 h-24 bg-primary-main/10 rounded-full flex items-center justify-center animate-pulse">
-            <svg class="w-12 h-12 text-primary-main" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-              <polyline points="9,22 9,12 15,12 15,22" />
-            </svg>
-          </div>
-          <div class="absolute inset-0 animate-spin" style="animation-duration: 2s">
-            <div class="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1 w-3 h-3 bg-primary-main rounded-full"></div>
-          </div>
-        </div>
-
-        <div class="text-center">
-          <h2 class="text-xl font-bold text-gray-900 mb-2">{{ loadingTitle }}</h2>
-          <p class="text-gray-500">
-            "{{ searchQuery || '추천' }}" 조건에 맞는 매물을 불러오는 중입니다...
+    <main class="relative flex flex-1 overflow-hidden">
+      <aside class="z-20 hidden w-[420px] shrink-0 flex-col border-r border-gray-200 bg-white lg:flex">
+        <div class="border-b border-gray-100 p-5">
+          <p class="text-xs font-semibold uppercase text-primary-main">{{ resultLabel }}</p>
+          <h1 class="mt-1 text-xl font-bold text-gray-900">
+            {{ searchQuery || '지도에서 매물 둘러보기' }}
+          </h1>
+          <p class="mt-1 text-sm text-gray-500">
+            지도 마커나 매물 카드를 눌러 상세 정보를 확인하세요.
           </p>
         </div>
 
-        <div class="w-64 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-          <div class="h-full bg-primary-main rounded-full animate-progress"></div>
+        <div v-if="isLoading" class="flex flex-1 items-center justify-center text-sm text-gray-500">
+          매물을 불러오는 중입니다...
         </div>
-      </div>
-    </div>
-
-    <main v-else class="flex-1 flex overflow-hidden">
-      <div v-if="properties.length === 0" class="flex-1 flex items-center justify-center">
-        <div class="text-center">
-          <div class="w-20 h-20 mx-auto mb-6 bg-gray-100 rounded-full flex items-center justify-center">
-            <svg class="w-10 h-10 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="11" cy="11" r="8" />
-              <path d="M21 21l-4.35-4.35" />
-              <path d="M8 8l6 6M14 8l-6 6" />
-            </svg>
+        <div v-else-if="listedProperties.length === 0" class="flex flex-1 items-center justify-center p-8 text-center">
+          <div>
+            <p class="text-lg font-semibold text-gray-900">검색 결과가 없습니다</p>
+            <p class="mt-2 text-sm text-gray-500">다른 지역을 선택해 다시 검색해보세요.</p>
           </div>
-          <h2 class="text-xl font-bold text-gray-900 mb-2">검색 결과가 없습니다</h2>
-          <p class="text-gray-500 mb-6">다른 조건으로 다시 검색해보세요.</p>
-          <button
-            class="px-6 py-3 bg-primary-main text-white font-semibold rounded-lg hover:bg-secondary-main"
-            @click="goBack"
-          >
-            다시 검색하기
-          </button>
         </div>
-      </div>
+        <div v-else class="flex-1 space-y-4 overflow-y-auto p-4">
+          <div
+            v-if="selectedCluster"
+            class="flex items-center justify-between rounded-lg border border-primary-main/30 bg-primary-main/10 px-3 py-2"
+          >
+            <span class="text-sm font-semibold text-primary-main">
+              선택한 구역 {{ selectedCluster.count }}개 매물
+            </span>
+            <button
+              class="text-sm font-semibold text-gray-500 hover:text-gray-900"
+              @click="clearSelectedCluster"
+            >
+              전체 보기
+            </button>
+          </div>
+          <PropertyCard
+            v-for="property in listedProperties"
+            :key="property.itemId"
+            :property="property"
+            :is-selected="selectedProperty?.itemId === property.itemId"
+            @select="focusProperty(property)"
+            @detail="openDetail(property)"
+            @update="handlePropertyUpdate"
+          />
+        </div>
+      </aside>
 
-      <template v-else>
-        <aside class="w-105 bg-white border-r border-gray-200 flex flex-col">
-          <div class="p-5 border-b border-gray-100">
-            <div class="flex gap-3 p-4 bg-gray-100 rounded-xl">
-              <span class="text-2xl">⌕</span>
-              <div>
-                <strong class="block text-gray-900 text-sm mb-1">{{ resultTitle }}</strong>
-                <p class="text-sm text-gray-500">
-                  "{{ searchQuery || '추천' }}" 조건의 매물입니다.
-                </p>
-              </div>
+      <section class="relative flex-1">
+        <div class="absolute left-4 right-4 top-4 z-20 flex flex-wrap items-start gap-2 lg:left-6 lg:right-auto">
+          <div class="relative">
+            <button
+              class="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:border-primary-main hover:text-primary-main"
+              :class="selectedDo ? 'border-primary-main bg-primary-main/10 text-primary-main' : ''"
+              @click="loadDoList"
+            >
+              {{ selectedDo || '시/도' }}
+            </button>
+            <div
+              v-if="openRegionMenu === 'do'"
+              class="absolute left-0 top-full mt-2 max-h-72 w-44 overflow-y-auto rounded-lg border border-gray-200 bg-white py-2 shadow-lg"
+            >
+              <p v-if="isLoadingRegion" class="px-4 py-3 text-sm text-gray-500">불러오는 중...</p>
+              <button
+                v-for="doItem in doList"
+                v-else
+                :key="doItem"
+                class="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-primary-main/10 hover:text-primary-main"
+                @click="selectDo(doItem)"
+              >
+                {{ doItem }}
+              </button>
             </div>
           </div>
 
-          <div class="flex-1 overflow-y-auto p-4 space-y-4">
-            <PropertyCard
-              v-for="property in properties"
-              :key="property.itemId"
-              :property="property"
-              :is-selected="selectedProperty?.itemId === property.itemId"
-              @select="selectProperty(property)"
-              @detail="openDetail(property)"
-              @update="handlePropertyUpdate"
-            />
-          </div>
-        </aside>
-
-        <div class="flex-1 relative">
-          <KakaoMap
-            :lat="mapCenter.lat"
-            :lng="mapCenter.lng"
-            :level="7"
-            width="100%"
-            height="100%"
-            @on-load-kakao-map="onLoadKakaoMap"
-          >
-            <template v-for="property in properties" :key="property.itemId">
-              <KakaoMapMarker
-                :lat="property.lat"
-                :lng="property.lng"
-                :clickable="true"
-                @onClickKakaoMapMarker="selectProperty(property)"
-              />
-              <KakaoMapCustomOverlay
-                v-if="selectedProperty?.itemId === property.itemId"
-                :lat="property.lat"
-                :lng="property.lng"
-                :y-anchor="1.4"
+          <div class="relative">
+            <button
+              class="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:border-primary-main hover:text-primary-main disabled:cursor-not-allowed disabled:opacity-50"
+              :class="selectedSi ? 'border-primary-main bg-primary-main/10 text-primary-main' : ''"
+              :disabled="!selectedDo"
+              @click="loadSiList"
+            >
+              {{ selectedSi || '시/군/구' }}
+            </button>
+            <div
+              v-if="openRegionMenu === 'si'"
+              class="absolute left-0 top-full mt-2 max-h-72 w-44 overflow-y-auto rounded-lg border border-gray-200 bg-white py-2 shadow-lg"
+            >
+              <p v-if="isLoadingRegion" class="px-4 py-3 text-sm text-gray-500">불러오는 중...</p>
+              <button
+                v-for="siItem in siList"
+                v-else
+                :key="siItem"
+                class="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-primary-main/10 hover:text-primary-main"
+                @click="selectSi(siItem)"
               >
-                <div
-                  class="flex items-center gap-2 px-4 py-2.5 bg-white rounded-lg shadow-lg cursor-pointer hover:scale-105 transition-transform"
-                  @click="openDetail(property)"
-                >
-                  <span
-                    class="px-2 py-1 rounded text-[10px] font-semibold"
-                    :class="
-                      selectedProperty.salesType === '전세'
-                        ? 'bg-primary-main text-white'
-                        : 'bg-secondary-main text-white'
-                    "
-                  >
-                    {{ property.salesType }}
-                  </span>
-                  <span class="text-base font-extrabold text-gray-900">
-                    {{ formatPrice(property.deposit, property.rent, property.salesType) }}
-                  </span>
-                </div>
-              </KakaoMapCustomOverlay>
-            </template>
-          </KakaoMap>
+                {{ siItem }}
+              </button>
+            </div>
+          </div>
+
+          <div class="relative">
+            <button
+              class="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm hover:border-primary-main hover:text-primary-main disabled:cursor-not-allowed disabled:opacity-50"
+              :class="selectedDong ? 'border-primary-main bg-primary-main/10 text-primary-main' : ''"
+              :disabled="!selectedSi"
+              @click="loadDongList"
+            >
+              {{ selectedDong || '읍/면/동' }}
+            </button>
+            <div
+              v-if="openRegionMenu === 'dong'"
+              class="absolute left-0 top-full mt-2 max-h-72 w-44 overflow-y-auto rounded-lg border border-gray-200 bg-white py-2 shadow-lg"
+            >
+              <p v-if="isLoadingRegion" class="px-4 py-3 text-sm text-gray-500">불러오는 중...</p>
+              <button
+                v-for="dongItem in dongList"
+                v-else
+                :key="dongItem"
+                class="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-primary-main/10 hover:text-primary-main"
+                @click="selectDong(dongItem)"
+              >
+                {{ dongItem }}
+              </button>
+            </div>
+          </div>
+
+          <button
+            class="rounded-full bg-primary-main px-4 py-2 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-secondary-main disabled:cursor-not-allowed disabled:opacity-50"
+            :disabled="!regionLabel"
+            @click="applyRegionSearch"
+          >
+            검색
+          </button>
+          <button
+            v-if="searchQuery || regionLabel"
+            class="rounded-full border border-gray-200 bg-white px-4 py-2 text-sm font-semibold text-gray-600 shadow-sm hover:border-gray-300 hover:text-gray-900"
+            @click="clearRegionSearch"
+          >
+            초기화
+          </button>
         </div>
-      </template>
+
+        <div
+          v-if="isLoading"
+          class="absolute inset-0 z-10 flex items-center justify-center bg-white/70 text-sm font-medium text-gray-600"
+        >
+          매물 지도를 준비하는 중입니다...
+        </div>
+
+        <KakaoMap
+          :lat="mapCenter.lat"
+          :lng="mapCenter.lng"
+          :level="7"
+          width="100%"
+          height="100%"
+          @on-load-kakao-map="onLoadKakaoMap"
+        >
+          <template v-for="cluster in visibleClusters" :key="cluster.id">
+            <KakaoMapCustomOverlay
+              :lat="cluster.lat"
+              :lng="cluster.lng"
+              :y-anchor="0.5"
+            >
+              <button
+                class="flex h-14 w-14 items-center justify-center rounded-full bg-primary-main/80 text-base font-extrabold text-white shadow-lg ring-4 ring-primary-main/25 transition-transform hover:scale-110"
+                :class="selectedCluster?.id === cluster.id ? 'outline outline-2 outline-primary-main ring-primary-main/60' : ''"
+                @click="focusCluster(cluster)"
+              >
+                {{ cluster.count }}
+              </button>
+            </KakaoMapCustomOverlay>
+          </template>
+
+        </KakaoMap>
+
+        <div
+          v-if="!isLoading && properties.length > 0"
+          class="absolute bottom-4 left-4 right-4 z-20 rounded-xl border border-gray-200 bg-white p-3 shadow-lg lg:hidden"
+        >
+          <PropertyCard
+            v-if="selectedProperty"
+            :property="selectedProperty"
+            :is-selected="true"
+            @select="focusProperty(selectedProperty)"
+            @detail="openDetail(selectedProperty)"
+            @update="handlePropertyUpdate"
+          />
+        </div>
+      </section>
     </main>
 
     <PropertyDetail
@@ -314,24 +657,3 @@ onMounted(() => {
     />
   </div>
 </template>
-
-<style scoped>
-@keyframes progress {
-  0% {
-    width: 0%;
-    margin-left: 0%;
-  }
-  50% {
-    width: 60%;
-    margin-left: 20%;
-  }
-  100% {
-    width: 0%;
-    margin-left: 100%;
-  }
-}
-
-.animate-progress {
-  animation: progress 1.5s ease-in-out infinite;
-}
-</style>

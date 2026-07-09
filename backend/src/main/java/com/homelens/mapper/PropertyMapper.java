@@ -1,6 +1,7 @@
 package com.homelens.mapper;
 
 import com.homelens.model.request.PageRequestDto;
+import com.homelens.model.request.property.MapSearchRequestDto;
 import com.homelens.model.request.property.PropertySearchByIdRequestDto;
 import com.homelens.model.request.property.PropertySearchRequestDto;
 import com.homelens.model.request.property.RegionSearchRequestDto;
@@ -20,6 +21,8 @@ public interface PropertyMapper {
     List<PropertyDetailResponseDto> selectByRegion(PropertySearchRequestDto query);
 
     List<PropertyDetailResponseDto> selectByBasicSearch(PropertySearchRequestDto query);
+
+    List<PropertyDetailResponseDto> selectMapProperties(MapSearchRequestDto query);
     
     PropertyDetailResponseDto selectPropertyByItemId(PropertySearchByIdRequestDto propertySearchByIdRequestDto);
     

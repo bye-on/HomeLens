@@ -10,9 +10,11 @@ interface Props {
   properties: PropertyData[]
 }
 
+type RouteRole = 'origin' | 'destination' | 'waypoint' | 'excluded'
+
 interface RouteProperty {
   property: PropertyData
-  role: 'origin' | 'destination' | 'waypoint' | 'excluded'
+  role: RouteRole
 }
 
 interface SavedRoute {
@@ -97,7 +99,7 @@ onMounted(() => {
         ? 'origin'
         : index === props.properties.length - 1
           ? 'destination'
-          : ('waypoint' as 'origin' | 'destination' | 'waypoint' | 'excluded'),
+          : 'waypoint',
   }))
 })
 
@@ -136,7 +138,9 @@ onUnmounted(() => {
 // 역할 순환: excluded -> waypoint -> origin -> destination -> excluded
 const toggleRole = (index: number) => {
   const current = routeProperties.value[index]
-  const roles: Array<'origin' | 'destination' | 'waypoint' | 'excluded'> = [
+  if (!current) return
+
+  const roles: RouteRole[] = [
     'excluded',
     'waypoint',
     'origin',
@@ -144,7 +148,10 @@ const toggleRole = (index: number) => {
   ]
   const currentIndex = roles.indexOf(current.role)
   const nextIndex = (currentIndex + 1) % roles.length
-  current.role = roles[nextIndex]
+  const nextRole = roles[nextIndex]
+  if (!nextRole) return
+
+  current.role = nextRole
 
   // origin과 destination은 각각 하나만 유지
   if (current.role === 'origin' || current.role === 'destination') {
@@ -285,7 +292,7 @@ const getRoleColor = (role: string) => {
   }
 }
 
-const formatPrice = (deposit: number, rent: number, salesType: string) => {
+const formatPrice = (deposit: number, rent: number, salesType: string | null) => {
   if (salesType === '전세') {
     if (deposit >= 10000) return `${(deposit / 10000).toFixed(1)}억`
     return `${deposit.toLocaleString()}만`

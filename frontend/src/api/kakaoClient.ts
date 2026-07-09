@@ -2,7 +2,7 @@ import type { AxiosInstance, InternalAxiosRequestConfig } from 'axios'
 import axios from 'axios'
 
 const kakaoClient: AxiosInstance = axios.create({
-  baseURL: 'v1',
+  baseURL: '/v1',
   withCredentials: true,
 })
 

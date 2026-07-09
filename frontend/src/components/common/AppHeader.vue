@@ -49,7 +49,7 @@ const handleLogout = () => {
       <!-- Nav -->
       <nav class="hidden md:flex gap-8">
         <router-link
-          to="/"
+          to="/result"
           class="text-sm font-medium text-gray-600 hover:text-primary-main transition-colors"
         >
           매물검색

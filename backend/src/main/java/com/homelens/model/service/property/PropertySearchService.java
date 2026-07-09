@@ -3,6 +3,7 @@ package com.homelens.model.service.property;
 import java.util.List;
 
 import com.homelens.model.request.PageRequestDto;
+import com.homelens.model.request.property.MapSearchRequestDto;
 import com.homelens.model.request.property.PropertySearchByIdRequestDto;
 import com.homelens.model.request.property.RegionSearchRequestDto;
 import com.homelens.model.request.property.SearchRequestDto;
@@ -14,6 +15,7 @@ import com.homelens.model.response.property.SearchResultResponseDto;
 public interface PropertySearchService {
 	public SearchResultResponseDto propertySearch(SearchRequestDto req);
 	public SearchResultResponseDto propertyBasicSearch(SearchRequestDto req);
+	public List<PropertyDetailResponseDto> selectMapProperties(MapSearchRequestDto req);
 	public PropertyDetailResponseDto selectPropertyByItemId(PropertySearchByIdRequestDto propertySearchByIdRequestDto);
 	public PropertyDetailListResponseDto selectRecentProperty(PageRequestDto pageDto);
 	public RegionSearchResponseDto selectLocal1(RegionSearchRequestDto regionSearchRequestDto);

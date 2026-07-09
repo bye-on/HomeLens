@@ -2,6 +2,7 @@ package com.homelens.model.service.property;
 
 import com.homelens.model.*;
 import com.homelens.model.request.PageRequestDto;
+import com.homelens.model.request.property.MapSearchRequestDto;
 import com.homelens.model.request.property.PropertySearchByIdRequestDto;
 import com.homelens.model.request.property.PropertySearchRequestDto;
 import com.homelens.model.request.property.RegionSearchRequestDto;
@@ -110,6 +111,12 @@ public class PropertySearchServiceImpl implements PropertySearchService {
 		result.setRegionOnly(Collections.emptyList());
 		return result;
 	}
+
+	@Override
+	public List<PropertyDetailResponseDto> selectMapProperties(MapSearchRequestDto req) {
+		return propertyMapper.selectMapProperties(req);
+	}
+
 	@Override
 	public PropertyDetailResponseDto selectPropertyByItemId(PropertySearchByIdRequestDto propertySearchByIdRequestDto) {
 		PropertyDetailResponseDto propertyDetailResponseDto = null;

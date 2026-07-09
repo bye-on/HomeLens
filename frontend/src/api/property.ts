@@ -20,6 +20,23 @@ export interface PropertyListResponse {
   regionOnly: PropertyData[]
 }
 
+export interface RecentPropertyResponse {
+  recentProperty: PropertyData[]
+  totalPage: number
+  currentPage: number
+}
+
+export interface MapPropertySearchParams {
+  swLat?: number
+  swLng?: number
+  neLat?: number
+  neLng?: number
+  local1?: string
+  local2?: string
+  local3?: string
+  size?: number
+}
+
 export type PropertySearchMode = 'basic' | 'ai'
 
 export const propertyApi = {
@@ -76,6 +93,22 @@ export const propertyApi = {
     mode: PropertySearchMode = 'basic',
   ): Promise<PropertyListResponse> => {
     return mode === 'ai' ? propertyApi.searchByAI(query) : propertyApi.searchBasic(query)
+  },
+
+  getRecent: async (page = 1, size = 50): Promise<RecentPropertyResponse> => {
+    const response = await client.get<Response<RecentPropertyResponse>>('/properties/recent', {
+      params: { page, size },
+      noAuth: true,
+    })
+    return response.data.data
+  },
+
+  getMapProperties: async (params: MapPropertySearchParams): Promise<PropertyData[]> => {
+    const response = await client.get<Response<PropertyData[]>>('/properties/map', {
+      params,
+      noAuth: true,
+    })
+    return response.data.data
   },
 
   getLikeHomeList: async (): Promise<PropertyData[]> => {

@@ -215,6 +215,41 @@
         ORDER BY item_id DESC
         LIMIT #{topK}
     </select>
+
+    <select id="selectMapProperties"
+            parameterType="com.homelens.model.request.property.MapSearchRequestDto"
+            resultMap="PropertyResultMap">
+        SELECT
+            item_id AS itemId, title, sales_type, service_type,
+            local1, local2, local3, jibun_address AS jibunAddress,
+            deposit, rent, manage_cost AS manageCost, manage_not_includes AS manageNotIncludes,
+            area_m2 AS areaM2, area_contract_m2 AS areaContractM2,
+            floor_level AS floorLevel, all_floors AS allFloors,
+            lat, lng, options,
+            subway, nb_distribution AS nbDistribution, nb_amenity AS nbAmenity, nb_poi, item_image
+        FROM property
+        <where>
+            lat IS NOT NULL
+            AND lng IS NOT NULL
+            <if test="swLat != null and neLat != null">
+                AND lat BETWEEN #{swLat} AND #{neLat}
+            </if>
+            <if test="swLng != null and neLng != null">
+                AND lng BETWEEN #{swLng} AND #{neLng}
+            </if>
+            <if test="local1 != null and local1 != ''">
+                AND local1 = #{local1}
+            </if>
+            <if test="local2 != null and local2 != ''">
+                AND local2 = #{local2}
+            </if>
+            <if test="local3 != null and local3 != ''">
+                AND local3 = #{local3}
+            </if>
+        </where>
+        ORDER BY item_id DESC
+        LIMIT #{limit}
+    </select>
     
     <select id="selectLocal1" parameterType="com.homelens.model.request.property.RegionSearchRequestDto">
     	select distinct local1 from region order by 1
