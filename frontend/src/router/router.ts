@@ -1,16 +1,17 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import HomeView from '../views/main/HomeView.vue'
-import ResultView from '../views/property/ResultView.vue'
-import MyPageView from '../views/auth/MyPageView.vue'
-import LoginView from '../views/auth/LoginView.vue'
-import RegisterView from '../views/auth/RegisterView.vue'
-import NoticeListView from '../views/notice/NoticeListView.vue'
-import NoticeDetailView from '../views/notice/NoticeDetailView.vue'
-import NoticeWriteView from '../views/notice/NoticeWriteView.vue'
-import AdminDashboardView from '../views/admin/AdminDashboardView.vue'
-import AdminUsersView from '../views/admin/AdminUsersView.vue'
-import AdminPropertiesView from '../views/admin/AdminPropertiesView.vue'
-import AdminNoticesView from '../views/admin/AdminNoticesView.vue'
+
+const HomeView = () => import('../views/main/HomeView.vue')
+const ResultView = () => import('../views/property/ResultView.vue')
+const MyPageView = () => import('../views/auth/MyPageView.vue')
+const LoginView = () => import('../views/auth/LoginView.vue')
+const RegisterView = () => import('../views/auth/RegisterView.vue')
+const NoticeListView = () => import('../views/notice/NoticeListView.vue')
+const NoticeDetailView = () => import('../views/notice/NoticeDetailView.vue')
+const NoticeWriteView = () => import('../views/notice/NoticeWriteView.vue')
+const AdminDashboardView = () => import('../views/admin/AdminDashboardView.vue')
+const AdminUsersView = () => import('../views/admin/AdminUsersView.vue')
+const AdminPropertiesView = () => import('../views/admin/AdminPropertiesView.vue')
+const AdminNoticesView = () => import('../views/admin/AdminNoticesView.vue')
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),

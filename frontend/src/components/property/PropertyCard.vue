@@ -81,7 +81,10 @@ const toggleLike = async () => {
       <img
         :src="getImageUrl()"
         :alt="property.title"
+        width="400"
+        height="300"
         loading="lazy"
+        decoding="async"
         class="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
       />
       <div class="absolute top-3 left-3 flex gap-1.5">

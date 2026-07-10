@@ -157,6 +157,9 @@ const toggleLike = async () => {
               v-if="images.length > 0"
               :src="getGalleryImageUrl(images[selectedImageIndex])"
               :alt="property.title"
+              width="800"
+              height="600"
+              decoding="async"
               class="w-full h-full object-cover"
             />
             <div
@@ -177,6 +180,10 @@ const toggleLike = async () => {
               <img
                 :src="`${getDetailImageUrl(img)}`"
                 :alt="`${i + 1}`"
+                width="800"
+                height="600"
+                loading="lazy"
+                decoding="async"
                 class="w-full h-full object-cover"
               />
             </button>
