@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { KakaoMap, KakaoMapCustomOverlay } from 'vue3-kakao-maps'
 import PropertyCard from '@/components/property/PropertyCard.vue'
@@ -61,14 +61,14 @@ const visibleClusters = computed<PropertyCluster[]>(() => {
   const level = mapLevel.value
   const step =
     level <= 4
-      ? 0.0008
+      ? 0.0012
       : level <= 6
-        ? 0.003
-        : level <= 8
-          ? 0.008
+        ? 0.006
+      : level <= 8
+          ? 0.02
           : level <= 10
-            ? 0.02
-            : 0.05
+            ? 0.05
+            : 0.12
 
   const clusterMap = new Map<string, PropertyData[]>()
 
@@ -123,6 +123,17 @@ const setProperties = (nextProperties: PropertyData[]) => {
   properties.value = nextProperties
   selectedCluster.value = null
   selectedProperty.value = nextProperties[0] ?? null
+}
+
+const measureRenderAfterData = async (label: string, start: number) => {
+  await nextTick()
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const end = performance.now()
+      console.log(`[perf] ${label}: ${(end - start).toFixed(1)}ms`)
+    })
+  })
 }
 
 const fitMapToProperties = () => {
@@ -183,6 +194,7 @@ const getMapBoundsParams = () => {
 const fetchMapProperties = async () => {
   if (!isMapMode.value) return
 
+  const requestStart = performance.now()
   isRefreshingMap.value = true
   try {
     const response = await propertyApi.getMapProperties({
@@ -192,7 +204,11 @@ const fetchMapProperties = async () => {
       local3: selectedDong.value || undefined,
       size: 1200,
     })
+    const apiEnd = performance.now()
+    console.log(`[perf] map api: ${(apiEnd - requestStart).toFixed(1)}ms`)
+
     setProperties(response || [])
+    await measureRenderAfterData('map data to rendered', apiEnd)
   } catch (error) {
     console.error('지도 매물 조회 실패:', error)
     setProperties([])
