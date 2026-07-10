@@ -218,15 +218,9 @@
 
     <select id="selectMapProperties"
             parameterType="com.homelens.model.request.property.MapSearchRequestDto"
-            resultMap="PropertyResultMap">
+            resultType="com.homelens.model.response.property.MapCoordinateResponseDto">
         SELECT
-            item_id AS itemId, title, sales_type, service_type,
-            local1, local2, local3, jibun_address AS jibunAddress,
-            deposit, rent, manage_cost AS manageCost, manage_not_includes AS manageNotIncludes,
-            area_m2 AS areaM2, area_contract_m2 AS areaContractM2,
-            floor_level AS floorLevel, all_floors AS allFloors,
-            lat, lng, options,
-            subway, nb_distribution AS nbDistribution, nb_amenity AS nbAmenity, nb_poi, item_image
+            item_id AS itemId, lat, lng
         FROM property
         <where>
             lat IS NOT NULL
@@ -260,8 +254,11 @@
             deposit, rent, manage_cost AS manageCost, manage_not_includes AS manageNotIncludes,
             area_m2 AS areaM2, area_contract_m2 AS areaContractM2,
             floor_level AS floorLevel, all_floors AS allFloors,
-            lat, lng, options,
-            subway, nb_distribution AS nbDistribution, nb_amenity AS nbAmenity, nb_poi, item_image
+            lat, lng,
+            CASE
+                WHEN item_image IS NULL THEN NULL
+                ELSE to_json(json_build_array(((item_image #>> '{}')::json ->> 0))::text)
+            END AS item_image
         FROM property
         <where>
             lat IS NOT NULL
