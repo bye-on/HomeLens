@@ -128,6 +128,13 @@ export const propertyApi = {
     return response.data.data
   },
 
+  getById: async (itemId: number): Promise<PropertyData> => {
+    const response = await client.get<Response<PropertyData>>(`/properties/${itemId}`, {
+      noAuth: true,
+    })
+    return response.data.data
+  },
+
   getLikeHomeList: async (): Promise<PropertyData[]> => {
     const response = await client.get<Response<PropertyData[]>>('/like/my')
     return response.data.data

@@ -1,6 +1,3 @@
-/* Pretendard 폰트 */
-@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.8/dist/web/variable/pretendardvariable.min.css');
-
 @import 'tailwindcss';
 
 /* 커스텀 테마 확장 */
@@ -19,9 +16,10 @@
   html {
     scrollbar-gutter: stable both-edges;
     font-family:
-      'Pretendard Variable',
       -apple-system,
       BlinkMacSystemFont,
+      'Segoe UI',
+      'Malgun Gothic',
       system-ui,
       sans-serif;
   }

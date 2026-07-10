@@ -1,14 +1,17 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useInfiniteQuery } from '@tanstack/vue-query'
 import { KakaoMap, KakaoMapCustomOverlay } from 'vue3-kakao-maps'
 import PropertyCard from '@/components/property/PropertyCard.vue'
-import PropertyDetail from '@/components/property/PropertyDetail.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { propertyApi } from '@/api/property'
 import type { MapPropertySearchParams } from '@/api/property'
 import type { PropertyData } from '@/type/property'
+
+const PropertyDetail = defineAsyncComponent(
+  () => import('@/components/property/PropertyDetail.vue'),
+)
 
 const route = useRoute()
 const router = useRouter()
@@ -23,17 +26,25 @@ const selectedProperty = ref<PropertyData | null>(null)
 const selectedCluster = ref<PropertyCluster | null>(null)
 const detailProperty = ref<PropertyData | null>(null)
 const showDetail = ref(false)
+const isLoadingDetail = ref(false)
 const map = ref<kakao.maps.Map>()
 const INITIAL_MAP_LEVEL = 4
 const MIN_ZOOM_REQUIRED_LEVEL = 8
-const MAP_ITEM_PAGE_SIZE = 20
+const MAP_ITEM_PAGE_SIZE = 8
 const DEFAULT_MAP_CENTER = { lat: 37.517122, lng: 126.917169 }
+const INITIAL_VIEW_BOUNDS = {
+  swLat: 37.497122,
+  swLng: 126.887169,
+  neLat: 37.537122,
+  neLng: 126.947169,
+}
 const mapLevel = ref(INITIAL_MAP_LEVEL)
 const isMapMode = computed(() => searchMode.value !== 'ai')
 const isMapTooZoomedOut = computed(() => isMapMode.value && mapLevel.value >= MIN_ZOOM_REQUIRED_LEVEL)
 const isRefreshingMap = ref(false)
 const listScroller = ref<HTMLElement | null>(null)
 const mapItemParams = ref<MapPropertySearchParams | null>(null)
+const clusterItemParams = ref<MapPropertySearchParams | null>(null)
 let mapFetchTimer: ReturnType<typeof setTimeout> | null = null
 const mapEventHandlers: Array<{ type: string; handler: () => void }> = []
 const clusterSourceKey = ref('initial')
@@ -49,12 +60,20 @@ const dongList = ref<string[]>([])
 const openRegionMenu = ref<'do' | 'si' | 'dong' | null>(null)
 const isLoadingRegion = ref(false)
 
+if (isMapMode.value) {
+  mapItemParams.value = {
+    ...INITIAL_VIEW_BOUNDS,
+    local1: selectedDo.value || undefined,
+    local2: selectedSi.value || undefined,
+    local3: selectedDong.value || undefined,
+  }
+}
+
 interface PropertyCluster {
   id: string
   lat: number
   lng: number
   count: number
-  properties: PropertyData[]
 }
 
 const resultLabel = computed(() => {
@@ -81,21 +100,46 @@ const mapItemsQuery = useInfiniteQuery({
     }),
   getNextPageParam: (lastPage) =>
     lastPage.hasNext ? (lastPage.nextCursor ?? undefined) : undefined,
+  placeholderData: (previousData) => previousData,
 })
 
 const mapListProperties = computed(() =>
   mapItemsQuery.data.value?.pages.flatMap((page) => page.items) ?? [],
 )
 
+const clusterItemsQuery = useInfiniteQuery({
+  queryKey: computed(() => ['cluster-property-items', clusterItemParams.value]),
+  enabled: computed(() => selectedCluster.value !== null && clusterItemParams.value !== null),
+  initialPageParam: undefined as number | undefined,
+  queryFn: ({ pageParam }) =>
+    propertyApi.getMapPropertyItems({
+      ...clusterItemParams.value!,
+      size: MAP_ITEM_PAGE_SIZE,
+      cursor: pageParam,
+    }),
+  getNextPageParam: (lastPage) =>
+    lastPage.hasNext ? (lastPage.nextCursor ?? undefined) : undefined,
+})
+
+const clusterListProperties = computed(() =>
+  clusterItemsQuery.data.value?.pages.flatMap((page) => page.items) ?? [],
+)
+
 const listedProperties = computed(() => {
-  if (selectedCluster.value) return selectedCluster.value.properties
+  if (selectedCluster.value) return clusterListProperties.value
   if (isMapMode.value) return mapListProperties.value
   return properties.value
 })
 
-const isListLoading = computed(
-  () => isLoading.value || (isMapMode.value && !selectedCluster.value && mapItemsQuery.isLoading.value),
-)
+const isListLoading = computed(() => {
+  if (isMapMode.value && !selectedCluster.value) {
+    return mapItemsQuery.isLoading.value
+  }
+
+  if (selectedCluster.value) return clusterItemsQuery.isLoading.value
+
+  return isLoading.value
+})
 
 const getClusterStep = (level: number) => {
   if (level <= 4) return 0.004
@@ -136,29 +180,25 @@ const visibleClusters = computed<PropertyCluster[]>(() => {
 
   if (cachedClusters) return cachedClusters
 
-  const clusterMap = new Map<string, PropertyData[]>()
+  const clusterMap = new Map<string, { sumLat: number; sumLng: number; count: number }>()
 
   properties.value.forEach((property) => {
     const latKey = Math.floor(property.lat / step)
     const lngKey = Math.floor(property.lng / step)
     const key = `${latKey}:${lngKey}`
-    const bucket = clusterMap.get(key) || []
-    bucket.push(property)
+    const bucket = clusterMap.get(key) || { sumLat: 0, sumLng: 0, count: 0 }
+    bucket.sumLat += property.lat
+    bucket.sumLng += property.lng
+    bucket.count += 1
     clusterMap.set(key, bucket)
   })
 
-  const clusters = Array.from(clusterMap.entries()).map(([id, clusterProperties]) => {
-    const lat =
-      clusterProperties.reduce((sum, property) => sum + property.lat, 0) / clusterProperties.length
-    const lng =
-      clusterProperties.reduce((sum, property) => sum + property.lng, 0) / clusterProperties.length
-
+  const clusters = Array.from(clusterMap.entries()).map(([id, bucket]) => {
     return {
       id,
-      lat,
-      lng,
-      count: clusterProperties.length,
-      properties: clusterProperties,
+      lat: bucket.sumLat / bucket.count,
+      lng: bucket.sumLng / bucket.count,
+      count: bucket.count,
     }
   })
 
@@ -180,17 +220,26 @@ const setProperties = (nextProperties: PropertyData[], sourceKey = clusterSource
   clusterSourceKey.value = sourceKey
   properties.value = nextProperties
   selectedCluster.value = null
-  selectedProperty.value = nextProperties[0] ?? null
+  clusterItemParams.value = null
+  selectedProperty.value = isMapMode.value ? null : (nextProperties[0] ?? null)
 }
 
 const handleListScroll = () => {
   const scroller = listScroller.value
-  if (!scroller || selectedCluster.value || !isMapMode.value) return
-  if (!mapItemsQuery.hasNextPage.value || mapItemsQuery.isFetchingNextPage.value) return
+  if (!scroller || !isMapMode.value) return
 
   const distanceToBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
   if (distanceToBottom < 600) {
-    mapItemsQuery.fetchNextPage()
+    if (selectedCluster.value) {
+      if (clusterItemsQuery.hasNextPage.value && !clusterItemsQuery.isFetchingNextPage.value) {
+        clusterItemsQuery.fetchNextPage()
+      }
+      return
+    }
+
+    if (mapItemsQuery.hasNextPage.value && !mapItemsQuery.isFetchingNextPage.value) {
+      mapItemsQuery.fetchNextPage()
+    }
   }
 }
 
@@ -415,18 +464,39 @@ const focusCluster = (cluster: PropertyCluster) => {
   if (!map.value) return
 
   selectedCluster.value = cluster
-  selectedProperty.value = cluster.properties[0] ?? null
+  selectedProperty.value = null
+  const step = getClusterStep(mapLevel.value)
+  const [latKey = 0, lngKey = 0] = cluster.id.split(':').map(Number)
+  clusterItemParams.value = {
+    swLat: latKey * step,
+    swLng: lngKey * step,
+    neLat: (latKey + 1) * step - 1e-9,
+    neLng: (lngKey + 1) * step - 1e-9,
+    local1: selectedDo.value || undefined,
+    local2: selectedSi.value || undefined,
+    local3: selectedDong.value || undefined,
+  }
   map.value.panTo(new kakao.maps.LatLng(cluster.lat, cluster.lng))
 }
 
 const clearSelectedCluster = () => {
   selectedCluster.value = null
-  selectedProperty.value = properties.value[0] ?? null
+  clusterItemParams.value = null
+  selectedProperty.value = mapListProperties.value[0] ?? null
 }
 
-const openDetail = (property: PropertyData) => {
-  detailProperty.value = property
-  showDetail.value = true
+const openDetail = async (property: PropertyData) => {
+  if (isLoadingDetail.value) return
+
+  isLoadingDetail.value = true
+  try {
+    detailProperty.value = await propertyApi.getById(property.itemId)
+    showDetail.value = true
+  } catch (error) {
+    console.error('매물 상세 조회 실패:', error)
+  } finally {
+    isLoadingDetail.value = false
+  }
 }
 
 const closeDetail = () => {

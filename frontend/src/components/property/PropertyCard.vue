@@ -87,7 +87,7 @@ const toggleLike = async () => {
         height="250"
         :loading="imagePriority ? 'eager' : 'lazy'"
         :fetchpriority="imagePriority ? 'high' : 'auto'"
-        decoding="async"
+        :decoding="imagePriority ? 'sync' : 'async'"
         class="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
       />
       <div class="absolute top-3 left-3 flex gap-1.5">

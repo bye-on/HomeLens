@@ -26,7 +26,7 @@ export const getThumbnailUrl = (url?: string): string => {
  * 카드 이미지 URL (중간 사이즈)
  */
 export const getCardImageUrl = (url?: string): string => {
-  return getZigbangImageUrl(url, 400, 300)
+  return getZigbangImageUrl(url, 400, 250)
 }
 
 /**
