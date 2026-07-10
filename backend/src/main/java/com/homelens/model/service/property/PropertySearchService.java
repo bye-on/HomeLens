@@ -9,6 +9,7 @@ import com.homelens.model.request.property.RegionSearchRequestDto;
 import com.homelens.model.request.property.SearchRequestDto;
 import com.homelens.model.response.property.PropertyDetailListResponseDto;
 import com.homelens.model.response.property.PropertyDetailResponseDto;
+import com.homelens.model.response.property.MapItemCursorResponseDto;
 import com.homelens.model.response.property.RegionSearchResponseDto;
 import com.homelens.model.response.property.SearchResultResponseDto;
 
@@ -16,6 +17,7 @@ public interface PropertySearchService {
 	public SearchResultResponseDto propertySearch(SearchRequestDto req);
 	public SearchResultResponseDto propertyBasicSearch(SearchRequestDto req);
 	public List<PropertyDetailResponseDto> selectMapProperties(MapSearchRequestDto req);
+	public MapItemCursorResponseDto selectMapPropertyItems(MapSearchRequestDto req);
 	public PropertyDetailResponseDto selectPropertyByItemId(PropertySearchByIdRequestDto propertySearchByIdRequestDto);
 	public PropertyDetailListResponseDto selectRecentProperty(PageRequestDto pageDto);
 	public RegionSearchResponseDto selectLocal1(RegionSearchRequestDto regionSearchRequestDto);

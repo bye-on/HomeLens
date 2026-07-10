@@ -9,10 +9,12 @@ import { useAuthStore } from '@/stores/useAuthStore'
 interface Props {
   property: PropertyData
   isSelected?: boolean
+  imagePriority?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   isSelected: false,
+  imagePriority: false,
 })
 
 const authStore = useAuthStore()
@@ -83,7 +85,8 @@ const toggleLike = async () => {
         :alt="property.title"
         width="400"
         height="250"
-        loading="lazy"
+        :loading="imagePriority ? 'eager' : 'lazy'"
+        :fetchpriority="imagePriority ? 'high' : 'auto'"
         decoding="async"
         class="w-full h-full object-cover transition-transform duration-300 hover:scale-105"
       />

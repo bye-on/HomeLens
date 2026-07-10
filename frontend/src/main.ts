@@ -2,6 +2,7 @@ import './assets/main.css'
 
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
+import { QueryClient, VueQueryPlugin } from '@tanstack/vue-query'
 import { useKakao } from 'vue3-kakao-maps/@utils'
 import piniaPluginPersistedstate from 'pinia-plugin-persistedstate'
 
@@ -13,5 +14,6 @@ useKakao(import.meta.env.VITE_KAKAO_MAP_KEY, ['services', 'clusterer'])
 
 const pinia = createPinia()
 pinia.use(piniaPluginPersistedstate)
+const queryClient = new QueryClient()
 
-createApp(App).use(pinia).use(router).mount('#app')
+createApp(App).use(pinia).use(router).use(VueQueryPlugin, { queryClient }).mount('#app')

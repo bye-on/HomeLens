@@ -35,6 +35,13 @@ export interface MapPropertySearchParams {
   local2?: string
   local3?: string
   size?: number
+  cursor?: number
+}
+
+export interface MapPropertyItemsResponse {
+  items: PropertyData[]
+  nextCursor: number | null
+  hasNext: boolean
 }
 
 export type PropertySearchMode = 'basic' | 'ai'
@@ -105,6 +112,16 @@ export const propertyApi = {
 
   getMapProperties: async (params: MapPropertySearchParams): Promise<PropertyData[]> => {
     const response = await client.get<Response<PropertyData[]>>('/properties/map', {
+      params,
+      noAuth: true,
+    })
+    return response.data.data
+  },
+
+  getMapPropertyItems: async (
+    params: MapPropertySearchParams,
+  ): Promise<MapPropertyItemsResponse> => {
+    const response = await client.get<Response<MapPropertyItemsResponse>>('/properties/map/items', {
       params,
       noAuth: true,
     })

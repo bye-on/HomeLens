@@ -48,6 +48,11 @@ public class PropertySearchController {
 		return ResponseEntity.ok(new SuccessResponse<>("지도 매물 조회 성공", propertySearchService.selectMapProperties(req)));
 	}
 
+	@GetMapping("/map/items")
+	public ResponseEntity<?> selectMapPropertyItems(@ModelAttribute MapSearchRequestDto req){
+		return ResponseEntity.ok(new SuccessResponse<>("지도 매물 커서 조회 성공", propertySearchService.selectMapPropertyItems(req)));
+	}
+
 	@GetMapping("/{itemId}")
 	public ResponseEntity<?> selectByItemId(@PathVariable int itemId){
 		PropertySearchByIdRequestDto propertySearchByIdRequestDto = new PropertySearchByIdRequestDto();

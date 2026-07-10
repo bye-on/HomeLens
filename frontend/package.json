@@ -20,6 +20,7 @@
   "dependencies": {
     "@primevue/themes": "^4.5.3",
     "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/vue-query": "^5.101.2",
     "axios": "^1.13.2",
     "pinia": "^3.0.4",
     "pinia-plugin-persistedstate": "^4.7.1",

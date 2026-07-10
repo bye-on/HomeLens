@@ -23,6 +23,8 @@ public interface PropertyMapper {
     List<PropertyDetailResponseDto> selectByBasicSearch(PropertySearchRequestDto query);
 
     List<PropertyDetailResponseDto> selectMapProperties(MapSearchRequestDto query);
+
+    List<PropertyDetailResponseDto> selectMapPropertyItems(MapSearchRequestDto query);
     
     PropertyDetailResponseDto selectPropertyByItemId(PropertySearchByIdRequestDto propertySearchByIdRequestDto);
     

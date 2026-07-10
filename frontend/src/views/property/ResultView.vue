@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useInfiniteQuery } from '@tanstack/vue-query'
 import { KakaoMap, KakaoMapCustomOverlay } from 'vue3-kakao-maps'
 import PropertyCard from '@/components/property/PropertyCard.vue'
 import PropertyDetail from '@/components/property/PropertyDetail.vue'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { propertyApi } from '@/api/property'
+import type { MapPropertySearchParams } from '@/api/property'
 import type { PropertyData } from '@/type/property'
 
 const route = useRoute()
@@ -24,11 +26,14 @@ const showDetail = ref(false)
 const map = ref<kakao.maps.Map>()
 const INITIAL_MAP_LEVEL = 4
 const MIN_ZOOM_REQUIRED_LEVEL = 8
+const MAP_ITEM_PAGE_SIZE = 20
 const DEFAULT_MAP_CENTER = { lat: 37.517122, lng: 126.917169 }
 const mapLevel = ref(INITIAL_MAP_LEVEL)
 const isMapMode = computed(() => searchMode.value !== 'ai')
 const isMapTooZoomedOut = computed(() => isMapMode.value && mapLevel.value >= MIN_ZOOM_REQUIRED_LEVEL)
 const isRefreshingMap = ref(false)
+const listScroller = ref<HTMLElement | null>(null)
+const mapItemParams = ref<MapPropertySearchParams | null>(null)
 let mapFetchTimer: ReturnType<typeof setTimeout> | null = null
 const mapEventHandlers: Array<{ type: string; handler: () => void }> = []
 const clusterSourceKey = ref('initial')
@@ -62,7 +67,35 @@ const regionLabel = computed(() => {
   return [selectedDo.value, selectedSi.value, selectedDong.value].filter(Boolean).join(' ')
 })
 
-const listedProperties = computed(() => selectedCluster.value?.properties ?? properties.value)
+const mapItemsQuery = useInfiniteQuery({
+  queryKey: computed(() => ['map-property-items', mapItemParams.value]),
+  enabled: computed(
+    () => isMapMode.value && !isMapTooZoomedOut.value && mapItemParams.value !== null,
+  ),
+  initialPageParam: undefined as number | undefined,
+  queryFn: ({ pageParam }) =>
+    propertyApi.getMapPropertyItems({
+      ...mapItemParams.value!,
+      size: MAP_ITEM_PAGE_SIZE,
+      cursor: pageParam,
+    }),
+  getNextPageParam: (lastPage) =>
+    lastPage.hasNext ? (lastPage.nextCursor ?? undefined) : undefined,
+})
+
+const mapListProperties = computed(() =>
+  mapItemsQuery.data.value?.pages.flatMap((page) => page.items) ?? [],
+)
+
+const listedProperties = computed(() => {
+  if (selectedCluster.value) return selectedCluster.value.properties
+  if (isMapMode.value) return mapListProperties.value
+  return properties.value
+})
+
+const isListLoading = computed(
+  () => isLoading.value || (isMapMode.value && !selectedCluster.value && mapItemsQuery.isLoading.value),
+)
 
 const getClusterStep = (level: number) => {
   if (level <= 4) return 0.004
@@ -150,6 +183,17 @@ const setProperties = (nextProperties: PropertyData[], sourceKey = clusterSource
   selectedProperty.value = nextProperties[0] ?? null
 }
 
+const handleListScroll = () => {
+  const scroller = listScroller.value
+  if (!scroller || selectedCluster.value || !isMapMode.value) return
+  if (!mapItemsQuery.hasNextPage.value || mapItemsQuery.isFetchingNextPage.value) return
+
+  const distanceToBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight
+  if (distanceToBottom < 600) {
+    mapItemsQuery.fetchNextPage()
+  }
+}
+
 const measureRenderAfterData = async (label: string, start: number) => {
   await nextTick()
 
@@ -175,6 +219,7 @@ const fetchProperties = async () => {
   isLoading.value = true
   try {
     if (searchMode.value === 'ai' && searchQuery.value) {
+      mapItemParams.value = null
       const response = await propertyApi.search(searchQuery.value, searchMode.value)
       setProperties(
         [...(response.primary || []), ...(response.regionOnly || [])],
@@ -232,6 +277,7 @@ const fetchMapProperties = async () => {
   mapLevel.value = map.value?.getLevel() ?? mapLevel.value
 
   if (isMapTooZoomedOut.value) {
+    mapItemParams.value = null
     setProperties([], createClusterSourceKey('zoom-required', { level: mapLevel.value }))
     isLoading.value = false
     isRefreshingMap.value = false
@@ -247,6 +293,7 @@ const fetchMapProperties = async () => {
       local2: selectedSi.value || undefined,
       local3: selectedDong.value || undefined,
     }
+    mapItemParams.value = params
     const response = await propertyApi.getMapProperties(params)
     const apiEnd = performance.now()
     console.log(`[perf] map api: ${(apiEnd - requestStart).toFixed(1)}ms`)
@@ -530,7 +577,7 @@ onUnmounted(() => {
           </p>
         </div>
 
-        <div v-if="isLoading" class="flex flex-1 items-center justify-center p-8 text-center">
+        <div v-if="isListLoading" class="flex flex-1 items-center justify-center p-8 text-center">
           <div>
             <p class="text-base font-semibold text-gray-700">매물 검색 중...</p>
             <p class="mt-2 text-sm text-gray-400">현재 지도 영역의 매물을 불러오고 있습니다.</p>
@@ -550,7 +597,12 @@ onUnmounted(() => {
             <p class="mt-2 text-sm text-gray-500">다른 지역을 선택해 다시 검색해보세요.</p>
           </div>
         </div>
-        <div v-else class="flex-1 space-y-4 overflow-y-auto p-4">
+        <div
+          v-else
+          ref="listScroller"
+          class="flex-1 space-y-4 overflow-y-auto p-4"
+          @scroll="handleListScroll"
+        >
           <div
             v-if="selectedCluster"
             class="flex items-center justify-between rounded-lg border border-primary-main/30 bg-primary-main/10 px-3 py-2"
@@ -566,14 +618,21 @@ onUnmounted(() => {
             </button>
           </div>
           <PropertyCard
-            v-for="property in listedProperties"
+            v-for="(property, index) in listedProperties"
             :key="property.itemId"
             :property="property"
             :is-selected="selectedProperty?.itemId === property.itemId"
+            :image-priority="index === 0"
             @select="focusProperty(property)"
             @detail="openDetail(property)"
             @update="handlePropertyUpdate"
           />
+          <div
+            v-if="isMapMode && !selectedCluster && mapItemsQuery.isFetchingNextPage.value"
+            class="py-4 text-center text-sm font-medium text-gray-400"
+          >
+            매물을 더 불러오는 중...
+          </div>
         </div>
       </aside>
 
@@ -713,6 +772,7 @@ onUnmounted(() => {
             v-if="selectedProperty"
             :property="selectedProperty"
             :is-selected="true"
+            image-priority
             @select="focusProperty(selectedProperty)"
             @detail="openDetail(selectedProperty)"
             @update="handlePropertyUpdate"

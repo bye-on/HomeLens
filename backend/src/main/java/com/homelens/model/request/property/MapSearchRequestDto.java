@@ -11,10 +11,20 @@ public class MapSearchRequestDto {
     private String local1;
     private String local2;
     private String local3;
+    private Long cursor;
     private Integer size = 1000;
 
     public Integer getLimit() {
         if (size == null || size < 1) return 1000;
         return Math.min(size, 2000);
+    }
+
+    public Integer getPageSize() {
+        if (size == null || size < 1) return 30;
+        return Math.min(size, 100);
+    }
+
+    public Integer getCursorLimit() {
+        return getPageSize() + 1;
     }
 }

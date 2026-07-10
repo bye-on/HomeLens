@@ -12,6 +12,7 @@ import com.homelens.model.response.board.BoardResponseDto;
 import com.homelens.model.response.fastApi.FastApiResponseDto;
 import com.homelens.model.response.property.PropertyDetailListResponseDto;
 import com.homelens.model.response.property.PropertyDetailResponseDto;
+import com.homelens.model.response.property.MapItemCursorResponseDto;
 import com.homelens.model.response.property.RegionSearchResponseDto;
 import com.homelens.model.response.property.SearchResultResponseDto;
 import com.homelens.exception.CustomException;
@@ -115,6 +116,21 @@ public class PropertySearchServiceImpl implements PropertySearchService {
 	@Override
 	public List<PropertyDetailResponseDto> selectMapProperties(MapSearchRequestDto req) {
 		return propertyMapper.selectMapProperties(req);
+	}
+
+	@Override
+	public MapItemCursorResponseDto selectMapPropertyItems(MapSearchRequestDto req) {
+		List<PropertyDetailResponseDto> rows = propertyMapper.selectMapPropertyItems(req);
+		int pageSize = req.getPageSize();
+		boolean hasNext = rows.size() > pageSize;
+		List<PropertyDetailResponseDto> items = hasNext ? rows.subList(0, pageSize) : rows;
+		Long nextCursor = hasNext && !items.isEmpty() ? items.get(items.size() - 1).getItemId() : null;
+
+		return MapItemCursorResponseDto.builder()
+				.items(items)
+				.nextCursor(nextCursor)
+				.hasNext(hasNext)
+				.build();
 	}
 
 	@Override
