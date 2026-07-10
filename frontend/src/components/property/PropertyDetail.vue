@@ -158,7 +158,7 @@ const toggleLike = async () => {
               :src="getGalleryImageUrl(images[selectedImageIndex])"
               :alt="property.title"
               width="800"
-              height="600"
+              height="500"
               decoding="async"
               class="w-full h-full object-cover"
             />
@@ -181,7 +181,7 @@ const toggleLike = async () => {
                 :src="`${getDetailImageUrl(img)}`"
                 :alt="`${i + 1}`"
                 width="800"
-                height="600"
+                height="500"
                 loading="lazy"
                 decoding="async"
                 class="w-full h-full object-cover"

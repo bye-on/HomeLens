@@ -82,7 +82,7 @@ const toggleLike = async () => {
         :src="getImageUrl()"
         :alt="property.title"
         width="400"
-        height="300"
+        height="250"
         loading="lazy"
         decoding="async"
         class="w-full h-full object-cover transition-transform duration-300 hover:scale-105"

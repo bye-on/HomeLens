@@ -22,11 +22,18 @@ const selectedCluster = ref<PropertyCluster | null>(null)
 const detailProperty = ref<PropertyData | null>(null)
 const showDetail = ref(false)
 const map = ref<kakao.maps.Map>()
-const mapLevel = ref(7)
+const INITIAL_MAP_LEVEL = 4
+const MIN_ZOOM_REQUIRED_LEVEL = 8
+const DEFAULT_MAP_CENTER = { lat: 37.517122, lng: 126.917169 }
+const mapLevel = ref(INITIAL_MAP_LEVEL)
 const isMapMode = computed(() => searchMode.value !== 'ai')
+const isMapTooZoomedOut = computed(() => isMapMode.value && mapLevel.value >= MIN_ZOOM_REQUIRED_LEVEL)
 const isRefreshingMap = ref(false)
 let mapFetchTimer: ReturnType<typeof setTimeout> | null = null
 const mapEventHandlers: Array<{ type: string; handler: () => void }> = []
+const clusterSourceKey = ref('initial')
+const clusterCache = new Map<string, PropertyCluster[]>()
+const CLUSTER_CACHE_LIMIT = 12
 
 const selectedDo = ref<string | null>((route.query.local1 as string) || null)
 const selectedSi = ref<string | null>((route.query.local2 as string) || null)
@@ -57,18 +64,44 @@ const regionLabel = computed(() => {
 
 const listedProperties = computed(() => selectedCluster.value?.properties ?? properties.value)
 
+const getClusterStep = (level: number) => {
+  if (level <= 4) return 0.004
+  if (level <= 6) return 0.008
+  if (level <= 8) return 0.025
+  if (level <= 10) return 0.06
+  return 0.12
+}
+
+const normalizeCacheValue = (value: unknown) => {
+  if (value === null || value === undefined || value === '') return ''
+  return typeof value === 'number' ? value.toFixed(5) : String(value)
+}
+
+const createClusterSourceKey = (prefix: string, params: Record<string, unknown>) => {
+  const paramKey = Object.keys(params)
+    .sort()
+    .map((key) => `${key}:${normalizeCacheValue(params[key])}`)
+    .join('|')
+
+  return `${prefix}|${paramKey}`
+}
+
+const rememberClusters = (key: string, clusters: PropertyCluster[]) => {
+  clusterCache.set(key, clusters)
+
+  if (clusterCache.size > CLUSTER_CACHE_LIMIT) {
+    const oldestKey = clusterCache.keys().next().value
+    if (oldestKey) clusterCache.delete(oldestKey)
+  }
+}
+
 const visibleClusters = computed<PropertyCluster[]>(() => {
   const level = mapLevel.value
-  const step =
-    level <= 4
-      ? 0.0012
-      : level <= 6
-        ? 0.006
-      : level <= 8
-          ? 0.02
-          : level <= 10
-            ? 0.05
-            : 0.12
+  const step = getClusterStep(level)
+  const cacheKey = `${clusterSourceKey.value}|step:${step}|count:${properties.value.length}`
+  const cachedClusters = clusterCache.get(cacheKey)
+
+  if (cachedClusters) return cachedClusters
 
   const clusterMap = new Map<string, PropertyData[]>()
 
@@ -81,7 +114,7 @@ const visibleClusters = computed<PropertyCluster[]>(() => {
     clusterMap.set(key, bucket)
   })
 
-  return Array.from(clusterMap.entries()).map(([id, clusterProperties]) => {
+  const clusters = Array.from(clusterMap.entries()).map(([id, clusterProperties]) => {
     const lat =
       clusterProperties.reduce((sum, property) => sum + property.lat, 0) / clusterProperties.length
     const lng =
@@ -95,21 +128,12 @@ const visibleClusters = computed<PropertyCluster[]>(() => {
       properties: clusterProperties,
     }
   })
+
+  rememberClusters(cacheKey, clusters)
+  return clusters
 })
 
-const mapCenter = computed(() => {
-  if (selectedProperty.value) {
-    return { lat: selectedProperty.value.lat, lng: selectedProperty.value.lng }
-  }
-
-  if (properties.value.length > 0) {
-    const lat = properties.value.reduce((sum, property) => sum + property.lat, 0) / properties.value.length
-    const lng = properties.value.reduce((sum, property) => sum + property.lng, 0) / properties.value.length
-    return { lat, lng }
-  }
-
-  return { lat: 37.5665, lng: 126.978 }
-})
+const mapCenter = computed(() => DEFAULT_MAP_CENTER)
 
 const formatPrice = (deposit: number, rent: number, salesType: string | null) => {
   if (salesType === '전세') {
@@ -119,7 +143,8 @@ const formatPrice = (deposit: number, rent: number, salesType: string | null) =>
   return `${deposit.toLocaleString()}/${rent.toLocaleString()}`
 }
 
-const setProperties = (nextProperties: PropertyData[]) => {
+const setProperties = (nextProperties: PropertyData[], sourceKey = clusterSourceKey.value) => {
+  clusterSourceKey.value = sourceKey
   properties.value = nextProperties
   selectedCluster.value = null
   selectedProperty.value = nextProperties[0] ?? null
@@ -151,8 +176,18 @@ const fetchProperties = async () => {
   try {
     if (searchMode.value === 'ai' && searchQuery.value) {
       const response = await propertyApi.search(searchQuery.value, searchMode.value)
-      setProperties([...(response.primary || []), ...(response.regionOnly || [])])
+      setProperties(
+        [...(response.primary || []), ...(response.regionOnly || [])],
+        createClusterSourceKey('ai', {
+          mode: searchMode.value,
+          query: searchQuery.value,
+        }),
+      )
       fitMapToProperties()
+      return
+    }
+
+    if (isMapMode.value && !map.value) {
       return
     }
 
@@ -161,13 +196,13 @@ const fetchProperties = async () => {
       return
     }
 
-    const response = await propertyApi.getMapProperties({
+    const params = {
       local1: selectedDo.value || undefined,
       local2: selectedSi.value || undefined,
       local3: selectedDong.value || undefined,
-      size: 1000,
-    })
-    setProperties(response || [])
+    }
+    const response = await propertyApi.getMapProperties(params)
+    setProperties(response || [], createClusterSourceKey('region', params))
   } catch (error) {
     console.error('매물 검색 실패:', error)
     setProperties([])
@@ -194,20 +229,29 @@ const getMapBoundsParams = () => {
 const fetchMapProperties = async () => {
   if (!isMapMode.value) return
 
+  mapLevel.value = map.value?.getLevel() ?? mapLevel.value
+
+  if (isMapTooZoomedOut.value) {
+    setProperties([], createClusterSourceKey('zoom-required', { level: mapLevel.value }))
+    isLoading.value = false
+    isRefreshingMap.value = false
+    return
+  }
+
   const requestStart = performance.now()
   isRefreshingMap.value = true
   try {
-    const response = await propertyApi.getMapProperties({
+    const params = {
       ...getMapBoundsParams(),
       local1: selectedDo.value || undefined,
       local2: selectedSi.value || undefined,
       local3: selectedDong.value || undefined,
-      size: 1200,
-    })
+    }
+    const response = await propertyApi.getMapProperties(params)
     const apiEnd = performance.now()
     console.log(`[perf] map api: ${(apiEnd - requestStart).toFixed(1)}ms`)
 
-    setProperties(response || [])
+    setProperties(response || [], createClusterSourceKey('map', params))
     await measureRenderAfterData('map data to rendered', apiEnd)
   } catch (error) {
     console.error('지도 매물 조회 실패:', error)
@@ -354,6 +398,7 @@ const handlePropertyUpdate = (updatedProperty: PropertyData) => {
   const index = properties.value.findIndex((property) => property.itemId === updatedProperty.itemId)
   if (index !== -1) {
     properties.value[index] = updatedProperty
+    clusterCache.clear()
   }
 }
 
@@ -485,8 +530,19 @@ onUnmounted(() => {
           </p>
         </div>
 
-        <div v-if="isLoading" class="flex flex-1 items-center justify-center text-sm text-gray-500">
-          매물을 불러오는 중입니다...
+        <div v-if="isLoading" class="flex flex-1 items-center justify-center p-8 text-center">
+          <div>
+            <p class="text-base font-semibold text-gray-700">매물 검색 중...</p>
+            <p class="mt-2 text-sm text-gray-400">현재 지도 영역의 매물을 불러오고 있습니다.</p>
+          </div>
+        </div>
+        <div v-else-if="isMapTooZoomedOut" class="flex flex-1 items-center justify-center p-8 text-center">
+          <div>
+            <p class="text-lg font-semibold text-gray-900">지도를 확대해 주세요</p>
+            <p class="mt-2 text-sm text-gray-500">
+              현재 영역이 너무 넓어 매물을 불러오지 않았습니다.
+            </p>
+          </div>
         </div>
         <div v-else-if="listedProperties.length === 0" class="flex flex-1 items-center justify-center p-8 text-center">
           <div>
@@ -626,7 +682,7 @@ onUnmounted(() => {
         <KakaoMap
           :lat="mapCenter.lat"
           :lng="mapCenter.lng"
-          :level="7"
+          :level="INITIAL_MAP_LEVEL"
           width="100%"
           height="100%"
           @on-load-kakao-map="onLoadKakaoMap"
