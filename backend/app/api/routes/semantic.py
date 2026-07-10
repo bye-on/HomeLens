@@ -1,10 +1,10 @@
 # app/api/routes/semantic.py
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 import json
 import logging
 
 from models.schemas import SearchRequest, SearchResponse, Filters, EmbedRequest, PrepareResponse, EmbedResponse
-from core.openai_client import client, EMBED_DIM, STRUCTURE_SYSTEM_PROMPT
+from core.openai_client import get_openai_client, EMBED_DIM, STRUCTURE_SYSTEM_PROMPT
 from core.gemini_client import gemini_generate
 
 logger = logging.getLogger(__name__)
@@ -13,6 +13,11 @@ router = APIRouter(prefix="/semantic", tags=["semantic"])
 
 @router.post("/prepare", response_model=PrepareResponse)
 def prepare_semantic_search(req: SearchRequest):
+    try:
+        client = get_openai_client()
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
     # openAI 구조화
     chat_resp = client.chat.completions.create(
         model="gpt-4o-mini",
@@ -46,6 +51,10 @@ def prepare_semantic_search(req: SearchRequest):
     
 @router.post("/embed", response_model=EmbedResponse)
 def embed(req: EmbedRequest):
+    try:
+        client = get_openai_client()
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
     embedding_text = req.embedding_text
 

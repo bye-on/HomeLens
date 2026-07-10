@@ -1,10 +1,15 @@
 import os
 from openai import OpenAI
 
-client = OpenAI(
-    api_key=os.environ["GMS_KEY"],
-    base_url="https://gms.ssafy.io/gmsapi/api.openai.com/v1",
-)
+def get_openai_client() -> OpenAI:
+    api_key = os.getenv("GMS_KEY")
+    if not api_key:
+        raise RuntimeError("GMS_KEY is required for semantic API requests.")
+
+    return OpenAI(
+        api_key=api_key,
+        base_url="https://gms.ssafy.io/gmsapi/api.openai.com/v1",
+    )
 
 EMBED_DIM = 1536
 

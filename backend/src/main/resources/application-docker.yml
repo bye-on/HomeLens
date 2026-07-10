@@ -1,8 +1,8 @@
 spring:
   datasource:
-    url: jdbc:postgresql://db:5432/homelens
-    username: homelens
-    password: homelens
+    url: jdbc:postgresql://${POSTGRES_HOST:db}:${POSTGRES_PORT:5432}/${POSTGRES_DB:homelens}
+    username: ${POSTGRES_USER:homelens}
+    password: ${POSTGRES_PASSWORD:homelens}
     driver-class-name: org.postgresql.Driver
 
 mybatis:
@@ -13,7 +13,7 @@ mybatis:
 
 semantic:
   api:
-    base-url: http://semantic-api:8000
+    base-url: ${SEMANTIC_API_BASE_URL:http://semantic-api:8000}
 
 
 mail:
